@@ -1,113 +1,143 @@
-name: Build IPTV Playlist and EPG
+name: Build and Deploy Guide
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 */6 * * *"
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-concurrency:
-  group: iptv-epg
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: 22
+          python-version: "3.12"
 
-      - name: Clone IPTV-org EPG
+      - name: Install Python dependencies
         run: |
-          git clone --depth 1 https://github.com/iptv-org/epg.git epg
+          pip install requests
 
-      - name: Install EPG dependencies
-        working-directory: epg
-        run: npm install
-
-      - name: Create custom EPG channel list
+      - name: Create public directory
         run: |
-          mkdir -p epg/custom
+          rm -rf public
+          mkdir -p public
 
-          cat > epg/custom/channels.xml <<'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channels>
-
-          <channel site="epgshare01.online" site_id="US1#ABC.(WABC).New.York,.NY.us" lang="en" xmltv_id="ABC.us@East">ABC</channel>
-          <channel site="epgshare01.online" site_id="US1#CBS.(WCBS).New.York,.NY.us" lang="en" xmltv_id="CBS.us@East">CBS</channel>
-          <channel site="epgshare01.online" site_id="US1#NBC.(WNBC).New.York,.NY.us" lang="en" xmltv_id="NBC.us@East">NBC</channel>
-          <channel site="epgshare01.online" site_id="US1#FOX.(WNYW).New.York,.NY.us" lang="en" xmltv_id="Fox.us@East">FOX</channel>
-          <channel site="epgshare01.online" site_id="US1#PBS.-.Network.HD.-.Eastern.us" lang="en" xmltv_id="PBS.us@KQED">PBS</channel>
-
-          <channel site="epgshare01.online" site_id="US1#CNN.us" lang="en" xmltv_id="CNN.us@East">CNN</channel>
-          <channel site="epgshare01.online" site_id="US1#Fox.News.us" lang="en" xmltv_id="FoxNewsChannel.us@SD">Fox News</channel>
-          <channel site="epgshare01.online" site_id="US1#CNBC.USA.us" lang="en" xmltv_id="CNBC.us@East">CNBC</channel>
-
-          <channel site="epgshare01.online" site_id="US1#ESPN.us" lang="en" xmltv_id="ESPN.us">ESPN</channel>
-          <channel site="epgshare01.online" site_id="US1#ESPN2.us" lang="en" xmltv_id="ESPN2.us">ESPN2</channel>
-
-          <channel site="epgshare01.online" site_id="US1#USA.Network.-.East.Feed.us" lang="en" xmltv_id="USANetwork.us@East">USA Network</channel>
-          <channel site="epgshare01.online" site_id="US1#TNT.-.Eastern.Feed.us" lang="en" xmltv_id="TNT.us@East">TNT</channel>
-          <channel site="epgshare01.online" site_id="US1#TBS.-.East.us" lang="en" xmltv_id="TBS.us@East">TBS</channel>
-
-          <channel site="epgshare01.online" site_id="US1#FX.Networks.East.Coast.us" lang="en" xmltv_id="FX.us@East">FX</channel>
-          <channel site="epgshare01.online" site_id="US1#FXX.USA.-.Eastern.us" lang="en" xmltv_id="FXX.us@East">FXX</channel>
-          <channel site="epgshare01.online" site_id="US1#Paramount.Network.USA.-.Eastern.Feed.us" lang="en" xmltv_id="ParamountNetwork.us@East">Paramount Network</channel>
-          <channel site="epgshare01.online" site_id="US1#Syfy.-.Eastern.Feed.us" lang="en" xmltv_id="SYFY.us@East">Syfy</channel>
-          <channel site="epgshare01.online" site_id="US1#Bravo.USA.-.Eastern.Feed.us" lang="en" xmltv_id="Bravo.us@East">Bravo</channel>
-          <channel site="epgshare01.online" site_id="US1#E!.Entertainment.USA.-.Eastern.Feed.us" lang="en" xmltv_id="E.us@East">E!</channel>
-          <channel site="epgshare01.online" site_id="US1#Freeform.-.East.Feed.us" lang="en" xmltv_id="Freeform.us@East">Freeform</channel>
-
-          <channel site="epgshare01.online" site_id="US1#Disney.-.Eastern.Feed.us" lang="en" xmltv_id="DisneyChannel.us@East">Disney Channel</channel>
-          <channel site="epgshare01.online" site_id="US1#Nickelodeon.USA.-.East.Feed.us" lang="en" xmltv_id="Nickelodeon.us@East">Nickelodeon</channel>
-          <channel site="epgshare01.online" site_id="US1#Cartoon.Network.USA.-.Eastern.Feed.us" lang="en" xmltv_id="CartoonNetwork.us@East">Cartoon Network</channel>
-
-          <channel site="epgshare01.online" site_id="US1#Comedy.Central.(US).-.Eastern.Feed.us" lang="en" xmltv_id="ComedyCentral.us@East">Comedy Central</channel>
-
-          <channel site="epgshare01.online" site_id="US1#Turner.Classic.Movies.USA.us" lang="en" xmltv_id="TCM.us@East">TCM</channel>
-          <channel site="epgshare01.online" site_id="US1#Hallmark.-.Eastern.Feed.us" lang="en" xmltv_id="HallmarkChannel.us@East">Hallmark Channel</channel>
-          <channel site="epgshare01.online" site_id="US1#AMC.-.Eastern.Feed.us" lang="en" xmltv_id="AMC.us@East">AMC</channel>
-
-          <channel site="epgshare01.online" site_id="US1#Game.Show.Network.-.East.us" lang="en" xmltv_id="GameShowNetwork.us@East">Game Show Network</channel>
-          <channel site="epgshare01.online" site_id="US1#HGTV.-.Eastern.us" lang="en" xmltv_id="HGTV.us@East">HGTV</channel>
-
-          </channels>
-          EOF
-
-      - name: Generate EPG
-        working-directory: epg
-        env:
-          NODE_OPTIONS: --max-old-space-size=6000
+      - name: Download current US EPG
         run: |
-          npm run grab --- \
-            --channels=custom/channels.xml \
-            --output=guide.xml \
-            --lang=en \
-            --maxConnections=3
+          curl -L --fail \
+            "https://vcicio.github.io/US-EPG/merged_epg.xml.gz" \
+            -o epg.xml.gz
+
+          ls -lh epg.xml.gz
+
+      - name: Build filtered EPG
+        run: |
+          python <<'PY'
+          import gzip
+          import xml.etree.ElementTree as ET
+
+          source = "epg.xml.gz"
+          output = "public/guide.xml"
+
+          wanted = {
+              "ABC.us@East",
+              "CBS.us@East",
+              "NBC.us@East",
+              "Fox.us@East",
+              "TheCW.us@SD",
+              "PBS.us@KQED",
+              "CNN.us@East",
+              "FoxNewsChannel.us@SD",
+              "CNBC.us@East",
+              "ESPN.us",
+              "ESPN2.us",
+              "USA.us@East",
+              "TNT.us@East",
+              "TBS.us@East",
+              "FX.us@East",
+              "FXX.us@East",
+              "ParamountNetwork.us@East",
+              "SYFY.us@East",
+              "Bravo.us@East",
+              "E.us@East",
+              "Freeform.us@East",
+              "DisneyChannel.us@East",
+              "Nickelodeon.us@East",
+              "CartoonNetwork.us@East",
+              "ComedyCentral.us@East",
+              "TCM.us@East",
+              "HallmarkChannel.us@East",
+              "AMC.us@East",
+              "GameShowNetwork.us@East",
+              "HGTV.us@East",
+          }
+
+          # Read the complete public XMLTV feed.
+          with gzip.open(source, "rb") as f:
+              tree = ET.parse(f)
+
+          root = tree.getroot()
+
+          # Keep only the channels whose XMLTV IDs match our playlist.
+          kept_ids = set()
+
+          for channel in list(root.findall("channel")):
+              channel_id = channel.get("id")
+
+              if channel_id in wanted:
+                  kept_ids.add(channel_id)
+              else:
+                  root.remove(channel)
+
+          # Remove programmes belonging to channels we did not keep.
+          programme_count = 0
+
+          for programme in list(root.findall("programme")):
+              channel_id = programme.get("channel")
+
+              if channel_id in kept_ids:
+                  programme_count += 1
+              else:
+                  root.remove(programme)
+
+          tree.write(output, encoding="utf-8", xml_declaration=True)
+
+          print("Requested channels:", len(wanted))
+          print("Matched channels:", len(kept_ids))
+          print("Programme entries:", programme_count)
+
+          if not kept_ids:
+              raise SystemExit("ERROR: No playlist channel IDs were found in the EPG.")
+
+          if programme_count == 0:
+              raise SystemExit("ERROR: No programme entries were found.")
+
+          print("Matched channel IDs:")
+          for channel_id in sorted(kept_ids):
+              print("  " + channel_id)
+          PY
 
       - name: Validate EPG
         run: |
-          if [ ! -s epg/guide.xml ]; then
-            echo "ERROR: guide.xml was not created or is empty."
+          test -s public/guide.xml
+
+          if ! grep -q "<tv" public/guide.xml; then
+            echo "ERROR: guide.xml is not a valid XMLTV document."
             exit 1
           fi
 
-          if ! grep -q "<tv" epg/guide.xml; then
-            echo "ERROR: guide.xml does not contain a valid XMLTV document."
-            exit 1
-          fi
-
-          PROGRAM_COUNT=$(grep -c "<programme " epg/guide.xml || true)
+          PROGRAM_COUNT=$(grep -c "<programme " public/guide.xml || true)
 
           echo "EPG programme entries: $PROGRAM_COUNT"
 
@@ -116,330 +146,28 @@ jobs:
             exit 1
           fi
 
-      - name: Download current IPTV-org stream API
+      - name: Copy playlist
         run: |
-          curl -L --fail --retry 3 \
-            https://iptv-org.github.io/api/streams.json \
-            -o streams.json
+          if [ ! -f channels.m3u ]; then
+            echo "ERROR: channels.m3u was not found."
+            exit 1
+          fi
 
-      - name: Create M3U playlist
+          cp channels.m3u public/channels.m3u
+
+      - name: Show generated files
         run: |
-          python3 <<'PY'
-          import json
-          import subprocess
-          from pathlib import Path
-
-          streams = json.loads(
-              Path("streams.json").read_text(
-                  encoding="utf-8",
-                  errors="ignore"
-              )
-          )
-
-          wanted = [
-              ("ABC.us@East", "Broadcast", "ABC",
-               "http://190.11.225.124:5000/live/abc_hd/playlist.m3u8"),
-
-              ("CBS.us@East", "Broadcast", "CBS",
-               "http://stream.cammonitorplus.net/1783/index.m3u8"),
-
-              ("NBC.us@East", "Broadcast", "NBC",
-               "http://190.11.225.124:5000/live/nbc_hd/playlist.m3u8"),
-
-              ("Fox.us@East", "Broadcast", "FOX",
-               "http://stream.cammonitorplus.net/1752/index.m3u8"),
-
-              ("TheCW.us@SD", "Broadcast", "The CW",
-               "https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"),
-
-              ("PBS.us@KQED", "Broadcast", "PBS",
-               "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"),
-
-              ("CNN.us@East", "News", "CNN",
-               "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"),
-
-              ("FoxNewsChannel.us@SD", "News", "Fox News",
-               "http://45.190.28.50/FOX_NEWS/index.m3u8"),
-
-              ("CNBC.us@East", "News", "CNBC",
-               "http://fl2.moveonjoy.com/CNBC/index.m3u8"),
-
-              ("ESPN.us", "Sports", "ESPN",
-               "http://fl1.moveonjoy.com/ESPN/index.m3u8"),
-
-              ("ESPN2.us", "Sports", "ESPN2",
-               "http://fl2.moveonjoy.com/ESPN_2/index.m3u8"),
-
-              ("USANetwork.us@East", "Entertainment", "USA Network",
-               "http://fl1.moveonjoy.com/USA_NETWORK/index.m3u8"),
-
-              ("TNT.us@East", "Entertainment", "TNT",
-               "http://170.254.18.106/TNT/index.m3u8"),
-
-              ("TBS.us@East", "Entertainment", "TBS",
-               "http://143.244.60.30/TBS/index.m3u8"),
-
-              ("FX.us@East", "Entertainment", "FX",
-               "http://23.237.104.106:8080/USA_FX/index.m3u8"),
-
-              ("FXX.us@East", "Entertainment", "FXX",
-               "http://23.237.104.106:8080/USA_FXX/index.m3u8"),
-
-              ("ParamountNetwork.us@East", "Entertainment", "Paramount Network",
-               "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"),
-
-              ("SYFY.us@East", "Entertainment", "Syfy",
-               "http://23.237.104.106:8080/USA_SYFY/index.m3u8"),
-
-              ("Bravo.us@East", "Entertainment", "Bravo",
-               "http://fl2.moveonjoy.com/BRAVO/index.m3u8"),
-
-              ("E.us@East", "Entertainment", "E!",
-               "http://23.237.104.106:8080/USA_E/index.m3u8"),
-
-              ("Freeform.us@East", "Entertainment", "Freeform",
-               "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"),
-
-              ("DisneyChannel.us@East", "Kids", "Disney Channel",
-               "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"),
-
-              ("Nickelodeon.us@East", "Kids", "Nickelodeon",
-               "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"),
-
-              ("CartoonNetwork.us@East", "Kids", "Cartoon Network",
-               "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"),
-
-              ("ComedyCentral.us@East", "Comedy", "Comedy Central",
-               "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"),
-
-              ("TCM.us@East", "Movies", "TCM",
-               "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"),
-
-              ("HallmarkChannel.us@East", "Movies", "Hallmark Channel",
-               "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"),
-
-              ("AMC.us@East", "Movies", "AMC",
-               "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8"),
-
-              ("GameShowNetwork.us@East", "Entertainment", "Game Show Network",
-               "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"),
-
-              ("HGTV.us@East", "Entertainment", "HGTV",
-               "http://212.102.60.231/HGTV/index.m3u8"),
-          ]
-
-          # IPTV-org channel/feed candidates.
-          candidates = {}
-
-          for item in streams:
-              channel = item.get("channel")
-              if not channel:
-                  continue
-
-              candidates.setdefault(channel, []).append(item)
-
-          def check_stream(url, referrer=None, user_agent=None):
-              cmd = [
-                  "curl",
-                  "-L",
-                  "-sS",
-                  "--fail",
-                  "--max-time", "12",
-                  "-A", user_agent or "Mozilla/5.0",
-                  "-r", "0-2048",
-              ]
-
-              if referrer:
-                  cmd.extend(["-e", referrer])
-
-              cmd.append(url)
-
-              try:
-                  result = subprocess.run(
-                      cmd,
-                      stdout=subprocess.PIPE,
-                      stderr=subprocess.DEVNULL,
-                      timeout=15
-                  )
-
-                  if result.returncode != 0:
-                      return False
-
-                  data = result.stdout.decode(
-                      "utf-8",
-                      errors="ignore"
-                  )
-
-                  return (
-                      "#EXTM3U" in data
-                      or "#EXT-X-" in data
-                      or "#EXTINF:" in data
-                  )
-
-              except Exception:
-                  return False
-
-          def get_iptv_org_stream(channel):
-              for item in candidates.get(channel, []):
-                  label = str(item.get("label") or "").lower()
-
-                  if "geo-blocked" in label:
-                      continue
-
-                  url = item.get("url")
-                  if not url:
-                      continue
-
-                  referrer = item.get("referrer")
-                  user_agent = item.get("user_agent")
-
-                  print(f"Checking IPTV-org: {channel}")
-                  print(f"  {url}")
-
-                  if check_stream(url, referrer, user_agent):
-                      return item
-
-              return None
-
-          output = ["#EXTM3U"]
-          selected = []
-          fallback = []
-          failed = []
-
-          for tvg_id, group, display_name, fallback_url in wanted:
-
-              stream = get_iptv_org_stream(tvg_id)
-
-              if stream:
-                  url = stream["url"]
-                  referrer = stream.get("referrer")
-                  user_agent = stream.get("user_agent")
-
-                  attributes = [
-                      f'tvg-id="{tvg_id}"',
-                      f'group-title="{group}"'
-                  ]
-
-                  if referrer:
-                      attributes.append(
-                          f'http-referrer="{referrer}"'
-                      )
-
-                  if user_agent:
-                      attributes.append(
-                          f'http-user-agent="{user_agent}"'
-                      )
-
-                  output.append(
-                      "#EXTINF:-1 "
-                      + " ".join(attributes)
-                      + f",{display_name}"
-                  )
-                  output.append(url)
-
-                  selected.append(display_name)
-                  continue
-
-              # No usable IPTV-org stream.
-              # Check the existing fallback before using it.
-              print(f"Checking fallback: {display_name}")
-              print(f"  {fallback_url}")
-
-              if check_stream(fallback_url):
-                  output.append(
-                      f'#EXTINF:-1 tvg-id="{tvg_id}" '
-                      f'group-title="{group}",{display_name}'
-                  )
-                  output.append(fallback_url)
-
-                  fallback.append(display_name)
-              else:
-                  failed.append(display_name)
-
-          Path("public").mkdir(exist_ok=True)
-
-          Path("public/channels.m3u").write_text(
-              "\n".join(output) + "\n",
-              encoding="utf-8"
-          )
-
-          print()
-          print("========================================")
-          print("M3U BUILD RESULTS")
-          print("========================================")
-          print(f"IPTV-org streams selected: {len(selected)}")
-          print(f"Fallback streams selected: {len(fallback)}")
-          print(f"Failed streams: {len(failed)}")
-          print(f"Total playlist channels: {len(selected) + len(fallback)}")
-          print()
-
-          if selected:
-              print("IPTV-org:")
-              for name in selected:
-                  print(f"  + {name}")
-
-          if fallback:
-              print()
-              print("Fallback:")
-              for name in fallback:
-                  print(f"  + {name}")
-
-          if failed:
-              print()
-              print("FAILED:")
-              for name in failed:
-                  print(f"  - {name}")
-
-              print()
-              print(
-                  "WARNING: One or more requested channels "
-                  "could not be verified from the runner."
-              )
-
-          print()
-
-          # Don't publish a playlist with only a handful of channels.
-          if len(selected) + len(fallback) < 20:
-              raise SystemExit(
-                  "ERROR: Fewer than 20 channels passed stream validation."
-              )
-          PY
-
-      - name: Copy EPG
-        run: |
-          cp epg/guide.xml public/guide.xml
-
-      - name: Create index page
-        run: |
-          cat > public/index.html <<'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>TV Playlist</title>
-          </head>
-          <body>
-            <h1>TV Playlist</h1>
-            <p><a href="channels.m3u">M3U Playlist</a></p>
-            <p><a href="guide.xml">XMLTV EPG</a></p>
-          </body>
-          </html>
-          EOF
+          echo "Generated files:"
+          ls -lh public/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
