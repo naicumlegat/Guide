@@ -1,0 +1,227 @@
+name: Build IPTV Playlist and EPG
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: iptv-epg
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clone IPTV-org EPG
+        run: |
+          git clone --depth 1 https://github.com/iptv-org/epg.git epg
+
+      - name: Install EPG dependencies
+        working-directory: epg
+        run: npm install
+
+      - name: Create custom EPG channel list
+        run: |
+          mkdir -p epg/custom
+
+          cat > epg/custom/channels.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channels>
+
+            <channel site="epgshare01.online" site_id="US1#ABC.(WABC).New.York,.NY.us" lang="en" xmltv_id="ABC.us@East">ABC</channel>
+            <channel site="epgshare01.online" site_id="US1#CBS.(WCBS).New.York,.NY.us" lang="en" xmltv_id="CBS.us@East">CBS</channel>
+            <channel site="epgshare01.online" site_id="US1#NBC.(WNBC).New.York,.NY.us" lang="en" xmltv_id="NBC.us@East">NBC</channel>
+            <channel site="epgshare01.online" site_id="US1#FOX.(WNYW).New.York,.NY.us" lang="en" xmltv_id="Fox.us@East">FOX</channel>
+            <channel site="epgshare01.online" site_id="US1#PBS.-.Network.HD.-.Eastern.us" lang="en" xmltv_id="PBS.us@KQED">PBS</channel>
+
+            <channel site="epgshare01.online" site_id="US1#CNN.us" lang="en" xmltv_id="CNN.us@East">CNN</channel>
+            <channel site="epgshare01.online" site_id="US1#Fox.News.us" lang="en" xmltv_id="FoxNewsChannel.us@SD">Fox News</channel>
+            <channel site="epgshare01.online" site_id="US1#CNBC.USA.us" lang="en" xmltv_id="CNBC.us@East">CNBC</channel>
+
+            <channel site="epgshare01.online" site_id="US1#ESPN.us" lang="en" xmltv_id="ESPN.us">ESPN</channel>
+            <channel site="epgshare01.online" site_id="US1#ESPN2.us" lang="en" xmltv_id="ESPN2.us">ESPN2</channel>
+
+            <channel site="epgshare01.online" site_id="US1#USA.Network.-.East.Feed.us" lang="en" xmltv_id="USA.us@East">USA Network</channel>
+            <channel site="epgshare01.online" site_id="US1#TNT.-.Eastern.Feed.us" lang="en" xmltv_id="TNT.us@East">TNT</channel>
+            <channel site="epgshare01.online" site_id="US1#TBS.-.East.us" lang="en" xmltv_id="TBS.us@East">TBS</channel>
+            <channel site="epgshare01.online" site_id="US1#FX.Networks.East.Coast.us" lang="en" xmltv_id="FX.us@East">FX</channel>
+            <channel site="epgshare01.online" site_id="US1#FXX.USA.-.Eastern.us" lang="en" xmltv_id="FXX.us@East">FXX</channel>
+            <channel site="epgshare01.online" site_id="US1#Paramount.Network.USA.-.Eastern.Feed.us" lang="en" xmltv_id="ParamountNetwork.us@East">Paramount Network</channel>
+            <channel site="epgshare01.online" site_id="US1#Syfy.-.Eastern.Feed.us" lang="en" xmltv_id="SYFY.us@East">Syfy</channel>
+            <channel site="epgshare01.online" site_id="US1#Bravo.USA.-.Eastern.Feed.us" lang="en" xmltv_id="Bravo.us@East">Bravo</channel>
+            <channel site="epgshare01.online" site_id="US1#E!.Entertainment.USA.-.Eastern.Feed.us" lang="en" xmltv_id="E.us@East">E!</channel>
+            <channel site="epgshare01.online" site_id="US1#Freeform.-.East.Feed.us" lang="en" xmltv_id="Freeform.us@East">Freeform</channel>
+
+            <channel site="epgshare01.online" site_id="US1#Disney.-.Eastern.Feed.us" lang="en" xmltv_id="DisneyChannel.us@East">Disney Channel</channel>
+            <channel site="epgshare01.online" site_id="US1#Nickelodeon.USA.-.East.Feed.us" lang="en" xmltv_id="Nickelodeon.us@East">Nickelodeon</channel>
+            <channel site="epgshare01.online" site_id="US1#Cartoon.Network.USA.-.Eastern.Feed.us" lang="en" xmltv_id="CartoonNetwork.us@East">Cartoon Network</channel>
+
+            <channel site="epgshare01.online" site_id="US1#Comedy.Central.(US).-.Eastern.Feed.us" lang="en" xmltv_id="ComedyCentral.us@East">Comedy Central</channel>
+
+            <channel site="epgshare01.online" site_id="US1#Turner.Classic.Movies.USA.us" lang="en" xmltv_id="TCM.us@East">TCM</channel>
+            <channel site="epgshare01.online" site_id="US1#Hallmark.-.Eastern.Feed.us" lang="en" xmltv_id="HallmarkChannel.us@East">Hallmark Channel</channel>
+            <channel site="epgshare01.online" site_id="US1#AMC.-.Eastern.Feed.us" lang="en" xmltv_id="AMC.us@East">AMC</channel>
+
+          </channels>
+          EOF
+
+      - name: Generate EPG
+        working-directory: epg
+        env:
+          NODE_OPTIONS: --max-old-space-size=6000
+        run: |
+          npm run grab --- \
+            --channels=custom/channels.xml \
+            --output=guide.xml \
+            --lang=en
+
+      - name: Create M3U playlist
+        run: |
+          mkdir -p public
+
+          cat > public/channels.m3u <<'EOF'
+          #EXTM3U
+
+          #EXTINF:-1 tvg-id="ABC.us@East" group-title="Broadcast",ABC
+          http://190.11.225.124:5000/live/abc_hd/playlist.m3u8
+
+          #EXTINF:-1 tvg-id="CBS.us@East" group-title="Broadcast",CBS
+          http://stream.cammonitorplus.net/1783/index.m3u8
+
+          #EXTINF:-1 tvg-id="NBC.us@East" group-title="Broadcast",NBC
+          http://stream.cammonitorplus.net/1785/index.m3u8
+
+          #EXTINF:-1 tvg-id="Fox.us@East" group-title="Broadcast",FOX
+          http://stream.cammonitorplus.net/1752/index.m3u8
+
+          #EXTINF:-1 tvg-id="TheCW.us@SD" group-title="Broadcast",The CW
+          https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8
+
+          #EXTINF:-1 tvg-id="PBS.us@KQED" group-title="Broadcast",PBS
+          https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8
+
+          #EXTINF:-1 tvg-id="CNN.us@East" group-title="News",CNN
+          https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8
+
+          #EXTINF:-1 tvg-id="FoxNewsChannel.us@SD" group-title="News",Fox News
+          http://45.190.28.50/FOX_NEWS/index.m3u8
+
+          #EXTINF:-1 tvg-id="CNBC.us@East" group-title="News",CNBC
+          http://fl2.moveonjoy.com/CNBC/index.m3u8
+
+          #EXTINF:-1 tvg-id="ESPN.us" group-title="Sports",ESPN
+          http://fl1.moveonjoy.com/ESPN/index.m3u8
+
+          #EXTINF:-1 tvg-id="ESPN2.us" group-title="Sports",ESPN2
+          http://fl2.moveonjoy.com/ESPN_2/index.m3u8
+
+          #EXTINF:-1 tvg-id="USA.us@East" group-title="Entertainment",USA Network
+          http://fl1.moveonjoy.com/USA_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="TNT.us@East" group-title="Entertainment",TNT
+          http://170.254.18.106/TNT/index.m3u8
+
+          #EXTINF:-1 tvg-id="TBS.us@East" group-title="Entertainment",TBS
+          http://143.244.60.30/TBS/index.m3u8
+
+          #EXTINF:-1 tvg-id="FX.us@East" group-title="Entertainment",FX
+          http://23.237.104.106:8080/USA_FX/index.m3u8
+
+          #EXTINF:-1 tvg-id="FXX.us@East" group-title="Entertainment",FXX
+          http://23.237.104.106:8080/USA_FXX/index.m3u8
+
+          #EXTINF:-1 tvg-id="ParamountNetwork.us@East" group-title="Entertainment",Paramount Network
+          https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="SYFY.us@East" group-title="Entertainment",Syfy
+          http://23.237.104.106:8080/USA_SYFY/index.m3u8
+
+          #EXTINF:-1 tvg-id="Bravo.us@East" group-title="Entertainment",Bravo
+          http://fl2.moveonjoy.com/BRAVO/index.m3u8
+
+          #EXTINF:-1 tvg-id="E.us@East" group-title="Entertainment",E!
+          http://23.237.104.106:8080/USA_E/index.m3u8
+
+          #EXTINF:-1 tvg-id="Freeform.us@East" group-title="Entertainment",Freeform
+          http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8
+
+          #EXTINF:-1 tvg-id="DisneyChannel.us@East" group-title="Kids",Disney Channel
+          https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8
+
+          #EXTINF:-1 tvg-id="Nickelodeon.us@East" group-title="Kids",Nickelodeon
+          http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8
+
+          #EXTINF:-1 tvg-id="CartoonNetwork.us@East" group-title="Kids",Cartoon Network
+          http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="ComedyCentral.us@East" group-title="Comedy",Comedy Central
+          http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8
+
+          #EXTINF:-1 tvg-id="TCM.us@East" group-title="Movies",TCM
+          http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts
+
+          #EXTINF:-1 tvg-id="HallmarkChannel.us@East" group-title="Movies",Hallmark Channel
+          http://23.237.104.106:8080/USA_HALLMARK/index.m3u8
+
+          #EXTINF:-1 tvg-id="AMC.us@East" group-title="Movies",AMC
+          https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8
+          EOF
+
+      - name: Copy EPG
+        run: |
+          cp epg/guide.xml public/guide.xml
+
+      - name: Create index page
+        run: |
+          cat > public/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>TV Playlist</title>
+          </head>
+          <body>
+            <h1>TV Playlist</h1>
+            <p>
+              <a href="channels.m3u">M3U Playlist</a>
+            </p>
+            <p>
+              <a href="guide.xml">XMLTV EPG</a>
+            </p>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
