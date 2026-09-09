@@ -24,10 +24,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python dependencies
-        run: |
-          pip install requests
-
       - name: Create public directory
         run: |
           rm -rf public
@@ -39,93 +35,314 @@ jobs:
             "https://vcicio.github.io/US-EPG/merged_epg.xml.gz" \
             -o epg.xml.gz
 
+          test -s epg.xml.gz
           ls -lh epg.xml.gz
 
       - name: Build filtered EPG
         run: |
           python <<'PY'
           import gzip
+          import re
           import xml.etree.ElementTree as ET
 
-          source = "epg.xml.gz"
-          output = "public/guide.xml"
+          SOURCE = "epg.xml.gz"
+          OUTPUT = "public/guide.xml"
 
-          wanted = {
-              "ABC.us@East",
-              "CBS.us@East",
-              "NBC.us@East",
-              "Fox.us@East",
-              "TheCW.us@SD",
-              "PBS.us@KQED",
-              "CNN.us@East",
-              "FoxNewsChannel.us@SD",
-              "CNBC.us@East",
-              "ESPN.us",
-              "ESPN2.us",
-              "USA.us@East",
-              "TNT.us@East",
-              "TBS.us@East",
-              "FX.us@East",
-              "FXX.us@East",
-              "ParamountNetwork.us@East",
-              "SYFY.us@East",
-              "Bravo.us@East",
-              "E.us@East",
-              "Freeform.us@East",
-              "DisneyChannel.us@East",
-              "Nickelodeon.us@East",
-              "CartoonNetwork.us@East",
-              "ComedyCentral.us@East",
-              "TCM.us@East",
-              "HallmarkChannel.us@East",
-              "AMC.us@East",
-              "GameShowNetwork.us@East",
-              "HGTV.us@East",
+          channels = {
+              "ABC.us@East": [
+                  "ABC",
+                  "ABC EAST",
+                  "ABC NETWORK"
+              ],
+              "CBS.us@East": [
+                  "CBS",
+                  "CBS EAST",
+                  "CBS NETWORK"
+              ],
+              "NBC.us@East": [
+                  "NBC",
+                  "NBC EAST",
+                  "NBC NETWORK"
+              ],
+              "Fox.us@East": [
+                  "FOX",
+                  "FOX EAST",
+                  "FOX NETWORK"
+              ],
+              "TheCW.us@SD": [
+                  "THE CW",
+                  "CW",
+                  "CW EAST"
+              ],
+              "PBS.us@KQED": [
+                  "PBS",
+                  "PBS EAST",
+                  "PBS NETWORK"
+              ],
+              "CNN.us@East": [
+                  "CNN",
+                  "CNN EAST"
+              ],
+              "FoxNewsChannel.us@SD": [
+                  "FOX NEWS",
+                  "FOX NEWS CHANNEL",
+                  "FOX NEWS EAST"
+              ],
+              "CNBC.us@East": [
+                  "CNBC",
+                  "CNBC EAST"
+              ],
+              "ESPN.us": [
+                  "ESPN"
+              ],
+              "ESPN2.us": [
+                  "ESPN2",
+                  "ESPN 2"
+              ],
+              "USA.us@East": [
+                  "USA NETWORK",
+                  "USA NETWORK EAST"
+              ],
+              "TNT.us@East": [
+                  "TNT",
+                  "TNT EAST"
+              ],
+              "TBS.us@East": [
+                  "TBS",
+                  "TBS EAST"
+              ],
+              "FX.us@East": [
+                  "FX",
+                  "FX EAST",
+                  "FX NETWORK"
+              ],
+              "FXX.us@East": [
+                  "FXX",
+                  "FXX EAST"
+              ],
+              "ParamountNetwork.us@East": [
+                  "PARAMOUNT NETWORK",
+                  "PARAMOUNT NETWORK EAST"
+              ],
+              "SYFY.us@East": [
+                  "SYFY",
+                  "SYFY EAST"
+              ],
+              "Bravo.us@East": [
+                  "BRAVO",
+                  "BRAVO EAST"
+              ],
+              "E.us@East": [
+                  "E!",
+                  "E! ENTERTAINMENT",
+                  "E! EAST"
+              ],
+              "Freeform.us@East": [
+                  "FREEFORM",
+                  "FREEFORM EAST"
+              ],
+              "DisneyChannel.us@East": [
+                  "DISNEY CHANNEL",
+                  "DISNEY CHANNEL EAST"
+              ],
+              "Nickelodeon.us@East": [
+                  "NICKELODEON",
+                  "NICKELODEON EAST"
+              ],
+              "CartoonNetwork.us@East": [
+                  "CARTOON NETWORK",
+                  "CARTOON NETWORK EAST"
+              ],
+              "ComedyCentral.us@East": [
+                  "COMEDY CENTRAL",
+                  "COMEDY CENTRAL EAST"
+              ],
+              "TCM.us@East": [
+                  "TURNER CLASSIC MOVIES",
+                  "TCM",
+                  "TCM EAST"
+              ],
+              "HallmarkChannel.us@East": [
+                  "HALLMARK CHANNEL",
+                  "HALLMARK",
+                  "HALLMARK CHANNEL EAST"
+              ],
+              "AMC.us@East": [
+                  "AMC",
+                  "AMC EAST",
+                  "AMC NETWORK"
+              ],
+              "GameShowNetwork.us@East": [
+                  "GAME SHOW NETWORK",
+                  "GSN",
+                  "GSN EAST"
+              ],
+              "HGTV.us@East": [
+                  "HGTV",
+                  "HGTV EAST"
+              ],
           }
 
-          # Read the complete public XMLTV feed.
-          with gzip.open(source, "rb") as f:
+          def normalize(value):
+              value = value or ""
+              value = value.upper()
+              value = value.replace("&AMP;", "AND")
+              value = re.sub(r"[^A-Z0-9!]+", " ", value)
+              return re.sub(r"\s+", " ", value).strip()
+
+          def names(channel):
+              result = []
+
+              for node in channel.findall("display-name"):
+                  if node.text:
+                      result.append(normalize(node.text))
+
+              return result
+
+          with gzip.open(SOURCE, "rb") as f:
               tree = ET.parse(f)
 
           root = tree.getroot()
 
-          # Keep only the channels whose XMLTV IDs match our playlist.
-          kept_ids = set()
+          source_channels = root.findall("channel")
+
+          # Build a normalized lookup of every display name.
+          candidates = []
+
+          for channel in source_channels:
+              channel_id = channel.get("id", "")
+              display_names = names(channel)
+
+              candidates.append({
+                  "element": channel,
+                  "id": channel_id,
+                  "names": display_names
+              })
+
+          selected = {}
+          used_source_ids = set()
+
+          for target_id, aliases in channels.items():
+              aliases = [normalize(x) for x in aliases]
+
+              best = None
+              best_score = -1
+
+              for candidate in candidates:
+                  if candidate["id"] in used_source_ids:
+                      continue
+
+                  for display_name in candidate["names"]:
+                      score = 0
+
+                      for alias in aliases:
+                          if display_name == alias:
+                              score = max(score, 1000)
+                          elif display_name.startswith(alias + " "):
+                              score = max(score, 800)
+                          elif alias in display_name:
+                              score = max(score, 500)
+
+                      # Avoid selecting local affiliate listings for
+                      # national channels when a cleaner national match exists.
+                      local_terms = [
+                          "NEW YORK", "LOS ANGELES", "CHICAGO",
+                          "DALLAS", "BOSTON", "PHILADELPHIA",
+                          "SAN FRANCISCO", "MIAMI", "TAMPA",
+                          "ATLANTA", "DETROIT", "HOUSTON",
+                          "WASHINGTON", "DENVER", "SEATTLE"
+                      ]
+
+                      if score and any(term in display_name for term in local_terms):
+                          score -= 250
+
+                      if score > best_score:
+                          best_score = score
+                          best = candidate
+
+              if best is not None and best_score >= 500:
+                  selected[target_id] = best
+                  used_source_ids.add(best["id"])
+
+          print()
+          print("Requested channels:", len(channels))
+          print("Matched channels:", len(selected))
+          print()
+
+          for target_id in channels:
+              if target_id in selected:
+                  candidate = selected[target_id]
+                  print(
+                      "MATCH:",
+                      target_id,
+                      "<-",
+                      candidate["id"],
+                      "|",
+                      " / ".join(candidate["names"])
+                  )
+              else:
+                  print("MISSING:", target_id)
+
+          missing = [
+              target_id
+              for target_id in channels
+              if target_id not in selected
+          ]
+
+          if missing:
+              print()
+              print("ERROR: The following channels could not be matched:")
+              for channel_id in missing:
+                  print("  " + channel_id)
+
+              raise SystemExit(1)
+
+          # Remove every channel except our selected 30.
+          selected_elements = {
+              id(candidate["element"])
+              for candidate in selected.values()
+          }
 
           for channel in list(root.findall("channel")):
-              channel_id = channel.get("id")
-
-              if channel_id in wanted:
-                  kept_ids.add(channel_id)
-              else:
+              if id(channel) not in selected_elements:
                   root.remove(channel)
 
-          # Remove programmes belonging to channels we did not keep.
+          # Rewrite the source XMLTV IDs to exactly match channels.m3u.
+          source_to_target = {}
+
+          for target_id, candidate in selected.items():
+              source_id = candidate["id"]
+              candidate["element"].set("id", target_id)
+              source_to_target[source_id] = target_id
+
+          # Rewrite programme channel references.
           programme_count = 0
 
           for programme in list(root.findall("programme")):
-              channel_id = programme.get("channel")
+              source_id = programme.get("channel")
 
-              if channel_id in kept_ids:
+              if source_id in source_to_target:
+                  programme.set("channel", source_to_target[source_id])
                   programme_count += 1
               else:
                   root.remove(programme)
 
-          tree.write(output, encoding="utf-8", xml_declaration=True)
-
-          print("Requested channels:", len(wanted))
-          print("Matched channels:", len(kept_ids))
+          print()
           print("Programme entries:", programme_count)
 
-          if not kept_ids:
-              raise SystemExit("ERROR: No playlist channel IDs were found in the EPG.")
-
           if programme_count == 0:
-              raise SystemExit("ERROR: No programme entries were found.")
+              raise SystemExit(
+                  "ERROR: No programme entries were found for the matched channels."
+              )
 
-          print("Matched channel IDs:")
-          for channel_id in sorted(kept_ids):
-              print("  " + channel_id)
+          tree.write(
+              OUTPUT,
+              encoding="utf-8",
+              xml_declaration=True
+          )
+
+          print()
+          print("Created:", OUTPUT)
           PY
 
       - name: Validate EPG
