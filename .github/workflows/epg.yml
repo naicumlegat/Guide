@@ -29,6 +29,106 @@ jobs:
           rm -rf public
           mkdir -p public
 
+      - name: Create M3U playlist
+        run: |
+          cat > public/channels.m3u <<'EOF'
+          #EXTM3U
+
+          #EXTINF:-1 tvg-id="ABC.us@East" group-title="Broadcast",ABC
+          http://190.11.225.124:5000/live/abc_hd/playlist.m3u8
+
+          #EXTINF:-1 tvg-id="CBS.us@East" group-title="Broadcast",CBS
+          http://stream.cammonitorplus.net/1783/index.m3u8
+
+          #EXTINF:-1 tvg-id="NBC.us@East" group-title="Broadcast",NBC
+          http://stream.cammonitorplus.net/1785/index.m3u8
+
+          #EXTINF:-1 tvg-id="Fox.us@East" group-title="Broadcast",FOX
+          http://stream.cammonitorplus.net/1752/index.m3u8
+
+          #EXTINF:-1 tvg-id="TheCW.us@SD" group-title="Broadcast",The CW
+          https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8
+
+          #EXTINF:-1 tvg-id="PBS.us@KQED" group-title="Broadcast",PBS
+          https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8
+
+          #EXTINF:-1 tvg-id="CNN.us@East" group-title="News",CNN
+          https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8
+
+          #EXTINF:-1 tvg-id="FoxNewsChannel.us@SD" group-title="News",Fox News
+          http://45.190.28.50/FOX_NEWS/index.m3u8
+
+          #EXTINF:-1 tvg-id="CNBC.us@East" group-title="News",CNBC
+          http://fl2.moveonjoy.com/CNBC/index.m3u8
+
+          #EXTINF:-1 tvg-id="ESPN.us" group-title="Sports",ESPN
+          http://fl1.moveonjoy.com/ESPN/index.m3u8
+
+          #EXTINF:-1 tvg-id="ESPN2.us" group-title="Sports",ESPN2
+          http://fl2.moveonjoy.com/ESPN_2/index.m3u8
+
+          #EXTINF:-1 tvg-id="USA.us@East" group-title="Entertainment",USA Network
+          http://fl1.moveonjoy.com/USA_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="TNT.us@East" group-title="Entertainment",TNT
+          http://170.254.18.106/TNT/index.m3u8
+
+          #EXTINF:-1 tvg-id="TBS.us@East" group-title="Entertainment",TBS
+          http://143.244.60.30/TBS/index.m3u8
+
+          #EXTINF:-1 tvg-id="FX.us@East" group-title="Entertainment",FX
+          http://23.237.104.106:8080/USA_FX/index.m3u8
+
+          #EXTINF:-1 tvg-id="FXX.us@East" group-title="Entertainment",FXX
+          http://23.237.104.106:8080/USA_FXX/index.m3u8
+
+          #EXTINF:-1 tvg-id="ParamountNetwork.us@East" group-title="Entertainment",Paramount Network
+          https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="SYFY.us@East" group-title="Entertainment",Syfy
+          http://23.237.104.106:8080/USA_SYFY/index.m3u8
+
+          #EXTINF:-1 tvg-id="Bravo.us@East" group-title="Entertainment",Bravo
+          http://fl2.moveonjoy.com/BRAVO/index.m3u8
+
+          #EXTINF:-1 tvg-id="E.us@East" group-title="Entertainment",E!
+          http://23.237.104.106:8080/USA_E/index.m3u8
+
+          #EXTINF:-1 tvg-id="Freeform.us@East" group-title="Entertainment",Freeform
+          http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8
+
+          #EXTINF:-1 tvg-id="DisneyChannel.us@East" group-title="Kids",Disney Channel
+          https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8
+
+          #EXTINF:-1 tvg-id="Nickelodeon.us@East" group-title="Kids",Nickelodeon
+          http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8
+
+          #EXTINF:-1 tvg-id="CartoonNetwork.us@East" group-title="Kids",Cartoon Network
+          http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="ComedyCentral.us@East" group-title="Comedy",Comedy Central
+          http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8
+
+          #EXTINF:-1 tvg-id="TCM.us@East" group-title="Movies",TCM
+          http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts
+
+          #EXTINF:-1 tvg-id="HallmarkChannel.us@East" group-title="Movies",Hallmark Channel
+          http://23.237.104.106:8080/USA_HALLMARK/index.m3u8
+
+          #EXTINF:-1 tvg-id="AMC.us@East" group-title="Movies",AMC
+          https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8
+
+          #EXTINF:-1 tvg-id="HGTV.us@East" group-title="Lifestyle",HGTV
+          http://212.102.60.231/HGTV/index.m3u8
+
+          #EXTINF:-1 tvg-id="GameShowNetwork.us@East" group-title="Entertainment",Game Show Network
+          https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8
+          EOF
+
+          echo "Created public/channels.m3u"
+          echo "Channel count:"
+          grep -c '^#EXTINF' public/channels.m3u
+
       - name: Download current US EPG
         run: |
           curl -L --fail \
@@ -89,21 +189,21 @@ jobs:
               return re.sub(r"\s+", " ", value).strip()
 
           def get_names(channel):
-              result = []
+              names = []
 
               for node in channel.findall("display-name"):
                   if node.text:
-                      result.append(normalize(node.text))
+                      names.append(normalize(node.text))
 
-              return result
+              return names
 
           def score_candidate(candidate, aliases):
-              channel_id = normalize(candidate["id"])
+              channel_id_raw = candidate["id"]
+              channel_id = normalize(channel_id_raw)
               names = candidate["names"]
-
               combined = " ".join([channel_id] + names)
 
-              # Never use the wrong time-zone feed.
+              # Reject non-Eastern feeds.
               forbidden = [
                   "PACIFIC",
                   "WESTERN",
@@ -117,8 +217,9 @@ jobs:
                   if word in combined:
                       return 0
 
-              # Normalized IDs no longer contain the dot.
-              if "US2" in channel_id:
+              # Reject US2 sources. This check is performed after
+              # normalization, so ".us2" becomes "US2".
+              if re.search(r"\bUS2\b", channel_id):
                   return 0
 
               # Never use AMC+ as AMC.
@@ -131,29 +232,25 @@ jobs:
                   for alias in aliases:
                       if name == alias:
                           score = max(score, 1000)
-
                       elif name.startswith(alias + " "):
                           score = max(score, 800)
-
                       elif alias in name:
                           score = max(score, 500)
 
               if score == 0:
                   return 0
 
-              # Prefer explicit Eastern feeds.
-              eastern = [
+              # Prefer Eastern feeds.
+              for term in [
                   "EASTERN",
                   "EAST",
                   "EAST FEED",
-              ]
-
-              for term in eastern:
+              ]:
                   if term in combined:
                       score += 300
 
-              # Prefer US1 where applicable.
-              if "US1" in channel_id:
+              # Prefer US1.
+              if re.search(r"\bUS1\b", channel_id):
                   score += 250
 
               return score
@@ -176,7 +273,7 @@ jobs:
           used_source_ids = set()
 
           for target_id, aliases in channels.items():
-              aliases = [normalize(x) for x in aliases]
+              aliases = [normalize(alias) for alias in aliases]
 
               best = None
               best_score = 0
@@ -215,7 +312,7 @@ jobs:
               else:
                   print("SKIP:", target_id)
 
-          # Keep only successfully matched channels.
+          # Remove every channel that wasn't selected.
           selected_elements = {
               id(candidate["element"])
               for candidate in selected.values()
@@ -225,7 +322,7 @@ jobs:
               if id(channel) not in selected_elements:
                   root.remove(channel)
 
-          # Change source IDs to the exact IDs used by channels.m3u.
+          # Map the source XMLTV IDs to the IDs used by our M3U.
           source_to_target = {}
 
           for target_id, candidate in selected.items():
@@ -235,7 +332,7 @@ jobs:
 
               source_to_target[source_id] = target_id
 
-          # Keep programmes belonging to matched channels only.
+          # Keep only programmes belonging to selected channels.
           programme_count = 0
 
           for programme in list(root.findall("programme")):
@@ -251,12 +348,12 @@ jobs:
                   root.remove(programme)
 
           print()
-          print("Matched channels:", len(selected))
+          print("Final matched channels:", len(selected))
           print("Programme entries:", programme_count)
 
           if not selected:
               raise SystemExit(
-                  "ERROR: No channels were matched."
+                  "ERROR: No EPG channels were matched."
               )
 
           if programme_count == 0:
@@ -274,32 +371,31 @@ jobs:
           print("Created:", OUTPUT)
           PY
 
-      - name: Validate EPG
+      - name: Validate generated files
         run: |
+          test -s public/channels.m3u
           test -s public/guide.xml
 
-          if ! grep -q "<tv" public/guide.xml; then
+          CHANNEL_COUNT=$(grep -c '^#EXTINF' public/channels.m3u || true)
+          PROGRAM_COUNT=$(grep -c '<programme ' public/guide.xml || true)
+
+          echo "Playlist channels: $CHANNEL_COUNT"
+          echo "EPG programmes: $PROGRAM_COUNT"
+
+          if [ "$CHANNEL_COUNT" -ne 30 ]; then
+            echo "ERROR: Expected 30 playlist channels."
+            exit 1
+          fi
+
+          if ! grep -q '<tv' public/guide.xml; then
             echo "ERROR: guide.xml is not a valid XMLTV document."
             exit 1
           fi
 
-          PROGRAM_COUNT=$(grep -c "<programme " public/guide.xml || true)
-
-          echo "EPG programme entries: $PROGRAM_COUNT"
-
           if [ "$PROGRAM_COUNT" -lt 1 ]; then
-            echo "ERROR: guide.xml contains no programme entries."
+            echo "ERROR: guide.xml contains no programmes."
             exit 1
           fi
-
-      - name: Copy playlist
-        run: |
-          if [ ! -f channels.m3u ]; then
-            echo "ERROR: channels.m3u was not found."
-            exit 1
-          fi
-
-          cp channels.m3u public/channels.m3u
 
       - name: Show generated files
         run: |
