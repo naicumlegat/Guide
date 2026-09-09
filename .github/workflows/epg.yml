@@ -49,196 +49,36 @@ jobs:
           OUTPUT = "public/guide.xml"
 
           channels = {
-              "ABC.us@East": [
-                  "ABC",
-                  "ABC EAST",
-                  "ABC NETWORK",
-                  "ABC EAST FEED"
-              ],
-              "CBS.us@East": [
-                  "CBS",
-                  "CBS EAST",
-                  "CBS NETWORK",
-                  "CBS EAST FEED"
-              ],
-              "NBC.us@East": [
-                  "NBC",
-                  "NBC EAST",
-                  "NBC NETWORK",
-                  "NBC EAST FEED"
-              ],
-              "Fox.us@East": [
-                  "FOX",
-                  "FOX EAST",
-                  "FOX NETWORK",
-                  "FOX EAST FEED"
-              ],
-              "TheCW.us@SD": [
-                  "THE CW",
-                  "CW",
-                  "CW EAST",
-                  "THE CW EAST"
-              ],
-              "PBS.us@KQED": [
-                  "PBS",
-                  "PBS EAST",
-                  "PBS NETWORK",
-                  "PBS NETWORK HD",
-                  "PBS EASTERN"
-              ],
-              "CNN.us@East": [
-                  "CNN",
-                  "CNN EAST",
-                  "CNN EAST FEED"
-              ],
-              "FoxNewsChannel.us@SD": [
-                  "FOX NEWS",
-                  "FOX NEWS CHANNEL",
-                  "FOX NEWS EAST",
-                  "FOX NEWS CHANNEL EAST"
-              ],
-              "CNBC.us@East": [
-                  "CNBC",
-                  "CNBC EAST",
-                  "CNBC EAST FEED"
-              ],
-              "ESPN.us": [
-                  "ESPN",
-                  "ESPN EAST",
-                  "ESPN HD"
-              ],
-              "ESPN2.us": [
-                  "ESPN2",
-                  "ESPN 2",
-                  "ESPN2 EAST",
-                  "ESPN2 HD"
-              ],
-              "USA.us@East": [
-                  "USA NETWORK",
-                  "USA NETWORK EAST",
-                  "USA NETWORK EAST FEED",
-                  "USA NETWORK - EAST FEED"
-              ],
-              "TNT.us@East": [
-                  "TNT",
-                  "TNT EAST",
-                  "TNT EAST FEED",
-                  "TNT - EASTERN FEED"
-              ],
-              "TBS.us@East": [
-                  "TBS",
-                  "TBS EAST",
-                  "TBS EAST FEED",
-                  "TBS - EAST"
-              ],
-              "FX.us@East": [
-                  "FX",
-                  "FX EAST",
-                  "FX NETWORK",
-                  "FX HD"
-              ],
-              "FXX.us@East": [
-                  "FXX",
-                  "FXX EAST",
-                  "FXX EAST FEED",
-                  "FXX HD"
-              ],
-              "ParamountNetwork.us@East": [
-                  "PARAMOUNT NETWORK",
-                  "PARAMOUNT NETWORK EAST",
-                  "PARAMOUNT NETWORK EAST FEED",
-                  "PARAMOUNT NETWORK HD"
-              ],
-              "SYFY.us@East": [
-                  "SYFY",
-                  "SYFY EAST",
-                  "SYFY EAST FEED",
-                  "SYFY - EASTERN FEED",
-                  "SYFY HD"
-              ],
-              "Bravo.us@East": [
-                  "BRAVO",
-                  "BRAVO EAST",
-                  "BRAVO EAST FEED",
-                  "BRAVO - EASTERN FEED",
-                  "BRAVO HD"
-              ],
-              "E.us@East": [
-                  "E!",
-                  "E! EAST",
-                  "E! ENTERTAINMENT",
-                  "E! ENTERTAINMENT TELEVISION",
-                  "E! ENTERTAINMENT TELEVISION EAST"
-              ],
-              "Freeform.us@East": [
-                  "FREEFORM",
-                  "FREEFORM EAST",
-                  "FREEFORM EAST FEED",
-                  "FREEFORM HD"
-              ],
-              "DisneyChannel.us@East": [
-                  "DISNEY CHANNEL",
-                  "DISNEY CHANNEL EAST",
-                  "DISNEY CHANNEL EAST FEED",
-                  "DISNEY CHANNEL HD"
-              ],
-              "Nickelodeon.us@East": [
-                  "NICKELODEON",
-                  "NICKELODEON EAST",
-                  "NICKELODEON EAST FEED",
-                  "NICKELODEON HD"
-              ],
-              "CartoonNetwork.us@East": [
-                  "CARTOON NETWORK",
-                  "CARTOON NETWORK EAST",
-                  "CARTOON NETWORK EAST FEED",
-                  "CARTOON NETWORK HD"
-              ],
-              "ComedyCentral.us@East": [
-                  "COMEDY CENTRAL",
-                  "COMEDY CENTRAL EAST",
-                  "COMEDY CENTRAL EAST FEED",
-                  "COMEDY CENTRAL HD"
-              ],
-              "TCM.us@East": [
-                  "TURNER CLASSIC MOVIES",
-                  "TURNER CLASSIC MOVIES EAST",
-                  "TURNER CLASSIC MOVIES HD",
-                  "TCM",
-                  "TCM EAST"
-              ],
-              "HallmarkChannel.us@East": [
-                  "HALLMARK CHANNEL",
-                  "HALLMARK CHANNEL EAST",
-                  "HALLMARK CHANNEL EASTERN",
-                  "HALLMARK CHANNEL HD",
-                  "HALLMARK - EASTERN FEED"
-              ],
-              "AMC.us@East": [
-                  "AMC",
-                  "AMC EAST",
-                  "AMC NETWORK",
-                  "AMC NETWORK EAST",
-                  "AMC EASTERN"
-              ],
-              "GameShowNetwork.us@East": [
-                  "GAME SHOW NETWORK",
-                  "GAME SHOW NETWORK EAST",
-                  "GAME SHOW NETWORK HD",
-                  "GSN",
-                  "GSN EAST"
-              ],
-              "HGTV.us@East": [
-                  "HGTV",
-                  "HGTV EAST",
-                  "HGTV EAST FEED",
-                  "HGTV USA",
-                  "HGTV USA EAST",
-                  "HGTV USA EASTERN",
-                  "HGTV USA EASTERN FEED",
-                  "HGTV USA - EASTERN FEED",
-                  "HGTV HD"
-              ],
+              "ABC.us@East": ["ABC"],
+              "CBS.us@East": ["CBS"],
+              "NBC.us@East": ["NBC"],
+              "Fox.us@East": ["FOX"],
+              "TheCW.us@SD": ["THE CW", "CW"],
+              "PBS.us@KQED": ["PBS"],
+              "CNN.us@East": ["CNN"],
+              "FoxNewsChannel.us@SD": ["FOX NEWS", "FOX NEWS CHANNEL"],
+              "CNBC.us@East": ["CNBC"],
+              "ESPN.us": ["ESPN"],
+              "ESPN2.us": ["ESPN2", "ESPN 2"],
+              "USA.us@East": ["USA NETWORK"],
+              "TNT.us@East": ["TNT"],
+              "TBS.us@East": ["TBS"],
+              "FX.us@East": ["FX"],
+              "FXX.us@East": ["FXX"],
+              "ParamountNetwork.us@East": ["PARAMOUNT NETWORK"],
+              "SYFY.us@East": ["SYFY"],
+              "Bravo.us@East": ["BRAVO"],
+              "E.us@East": ["E!"],
+              "Freeform.us@East": ["FREEFORM"],
+              "DisneyChannel.us@East": ["DISNEY CHANNEL"],
+              "Nickelodeon.us@East": ["NICKELODEON"],
+              "CartoonNetwork.us@East": ["CARTOON NETWORK"],
+              "ComedyCentral.us@East": ["COMEDY CENTRAL"],
+              "TCM.us@East": ["TURNER CLASSIC MOVIES", "TCM"],
+              "HallmarkChannel.us@East": ["HALLMARK CHANNEL", "HALLMARK"],
+              "AMC.us@East": ["AMC"],
+              "GameShowNetwork.us@East": ["GAME SHOW NETWORK", "GSN"],
+              "HGTV.us@East": ["HGTV"],
           }
 
           def normalize(value):
@@ -249,38 +89,21 @@ jobs:
               return re.sub(r"\s+", " ", value).strip()
 
           def get_names(channel):
-              names = []
+              result = []
 
               for node in channel.findall("display-name"):
                   if node.text:
-                      names.append(normalize(node.text))
+                      result.append(normalize(node.text))
 
-              return names
+              return result
 
           def score_candidate(candidate, aliases):
               channel_id = normalize(candidate["id"])
-              display_names = candidate["names"]
+              names = candidate["names"]
 
-              score = 0
+              combined = " ".join([channel_id] + names)
 
-              for display_name in display_names:
-                  for alias in aliases:
-
-                      if display_name == alias:
-                          score = max(score, 1000)
-
-                      elif display_name.startswith(alias + " "):
-                          score = max(score, 800)
-
-                      elif alias in display_name:
-                          score = max(score, 500)
-
-              if score == 0:
-                  return 0
-
-              combined = " ".join([channel_id] + display_names)
-
-              # Never use another time-zone feed for an East channel.
+              # Never use the wrong time-zone feed.
               forbidden = [
                   "PACIFIC",
                   "WESTERN",
@@ -294,35 +117,44 @@ jobs:
                   if word in combined:
                       return 0
 
-              # US2 entries in this feed are the Pacific variants
-              # for the channels encountered here.
-              if ".US2" in channel_id:
+              # Normalized IDs no longer contain the dot.
+              if "US2" in channel_id:
                   return 0
 
-              # Never map AMC+ to AMC.
+              # Never use AMC+ as AMC.
               if "AMC+" in combined or "AMC PLUS" in combined:
                   return 0
 
-              # Prefer explicit Eastern variants.
-              eastern_terms = [
+              score = 0
+
+              for name in names:
+                  for alias in aliases:
+                      if name == alias:
+                          score = max(score, 1000)
+
+                      elif name.startswith(alias + " "):
+                          score = max(score, 800)
+
+                      elif alias in name:
+                          score = max(score, 500)
+
+              if score == 0:
+                  return 0
+
+              # Prefer explicit Eastern feeds.
+              eastern = [
                   "EASTERN",
                   "EAST",
                   "EAST FEED",
-                  "EASTERN FEED",
               ]
 
-              for term in eastern_terms:
+              for term in eastern:
                   if term in combined:
                       score += 300
 
-              # The US1 source represents the Eastern/general feed.
-              if ".US1" in channel_id:
+              # Prefer US1 where applicable.
+              if "US1" in channel_id:
                   score += 250
-
-              # Exact national HD channels are preferable to ambiguous
-              # local/affiliate listings.
-              if "HD" in combined:
-                  score += 25
 
               return score
 
@@ -343,8 +175,8 @@ jobs:
           selected = {}
           used_source_ids = set()
 
-          for target_id, alias_list in channels.items():
-              aliases = [normalize(alias) for alias in alias_list]
+          for target_id, aliases in channels.items():
+              aliases = [normalize(x) for x in aliases]
 
               best = None
               best_score = 0
@@ -359,7 +191,7 @@ jobs:
                       best_score = score
                       best = candidate
 
-              if best is not None and best_score > 0:
+              if best is not None:
                   selected[target_id] = best
                   used_source_ids.add(best["id"])
 
@@ -381,23 +213,9 @@ jobs:
                       " / ".join(candidate["names"])
                   )
               else:
-                  print("MISSING:", target_id)
+                  print("SKIP:", target_id)
 
-          missing = [
-              target_id
-              for target_id in channels
-              if target_id not in selected
-          ]
-
-          if missing:
-              print()
-              print("ERROR: The following channels could not be matched:")
-              for channel_id in missing:
-                  print("  " + channel_id)
-
-              raise SystemExit(1)
-
-          # Remove all channels that aren't part of the playlist.
+          # Keep only successfully matched channels.
           selected_elements = {
               id(candidate["element"])
               for candidate in selected.values()
@@ -407,7 +225,7 @@ jobs:
               if id(channel) not in selected_elements:
                   root.remove(channel)
 
-          # Change the selected EPG IDs to exactly match channels.m3u.
+          # Change source IDs to the exact IDs used by channels.m3u.
           source_to_target = {}
 
           for target_id, candidate in selected.items():
@@ -417,8 +235,7 @@ jobs:
 
               source_to_target[source_id] = target_id
 
-          # Keep only programmes belonging to our selected channels
-          # and rewrite their channel IDs.
+          # Keep programmes belonging to matched channels only.
           programme_count = 0
 
           for programme in list(root.findall("programme")):
@@ -429,13 +246,18 @@ jobs:
                       "channel",
                       source_to_target[source_id]
                   )
-
                   programme_count += 1
               else:
                   root.remove(programme)
 
           print()
+          print("Matched channels:", len(selected))
           print("Programme entries:", programme_count)
+
+          if not selected:
+              raise SystemExit(
+                  "ERROR: No channels were matched."
+              )
 
           if programme_count == 0:
               raise SystemExit(
