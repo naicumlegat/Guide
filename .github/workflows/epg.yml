@@ -739,9 +739,26 @@ jobs:
 
           chmod +x scripts/publish-state.sh
 
-          ./scripts/publish-state.sh \
-            "epg: $(date -u +%FT%TZ)" \
-            guides/:epg/
+          for attempt in 1 2 3 4 5; do
+            echo "Publishing EPG state, attempt $attempt"
+
+            if ./scripts/publish-state.sh \
+              "epg: $(date -u +%FT%TZ)" \
+              guides/:epg/; then
+              echo "EPG state published successfully"
+              exit 0
+            fi
+
+            echo "State branch changed during publish"
+
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 3))
+              git fetch origin state:state --force
+            fi
+          done
+
+          echo "Failed to publish EPG state after 5 attempts"
+          exit 1
 
   discovery:
     name: Discover Streams
@@ -1067,9 +1084,26 @@ jobs:
 
           chmod +x scripts/publish-state.sh
 
-          ./scripts/publish-state.sh \
-            "discovery: $(date -u +%FT%TZ)" \
-            .data/discovery.json:discovery.json
+          for attempt in 1 2 3 4 5; do
+            echo "Publishing discovery state, attempt $attempt"
+
+            if ./scripts/publish-state.sh \
+              "discovery: $(date -u +%FT%TZ)" \
+              .data/discovery.json:discovery.json; then
+              echo "Discovery state published successfully"
+              exit 0
+            fi
+
+            echo "State branch changed during publish"
+
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 3))
+              git fetch origin state:state --force
+            fi
+          done
+
+          echo "Failed to publish discovery state after 5 attempts"
+          exit 1
 
   health:
     name: Health Scan
@@ -1322,9 +1356,26 @@ jobs:
 
           chmod +x scripts/publish-state.sh
 
-          ./scripts/publish-state.sh \
-            "health: $(date -u +%FT%TZ)" \
-            .data/health.json:health.json
+          for attempt in 1 2 3 4 5; do
+            echo "Publishing health state, attempt $attempt"
+
+            if ./scripts/publish-state.sh \
+              "health: $(date -u +%FT%TZ)" \
+              .data/health.json:health.json; then
+              echo "Health state published successfully"
+              exit 0
+            fi
+
+            echo "State branch changed during publish"
+
+            if [ "$attempt" -lt 5 ]; then
+              sleep $((attempt * 3))
+              git fetch origin state:state --force
+            fi
+          done
+
+          echo "Failed to publish health state after 5 attempts"
+          exit 1
 
   sync:
     name: Sync and Deploy
