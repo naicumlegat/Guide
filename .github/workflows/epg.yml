@@ -83,6 +83,96 @@ jobs:
           path.write_text(text)
           PY
 
+      - name: Preserve stream feed identity
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/aggregate/sources.ts")
+          text = path.read_text()
+
+          if "function splitChannelFeed(" not in text:
+              marker = "interface JsonStreamShape {"
+
+              helper = r'''
+          function splitChannelFeed(value: string | null): {
+            channel: string | null;
+            feed: string | null;
+          } {
+            const valueTrimmed = value?.trim() ?? "";
+
+            if (!valueTrimmed) {
+              return {
+                channel: null,
+                feed: null,
+              };
+            }
+
+            const at = valueTrimmed.indexOf("@");
+
+            if (at <= 0 || at === valueTrimmed.length - 1) {
+              return {
+                channel: valueTrimmed,
+                feed: null,
+              };
+            }
+
+            return {
+              channel: valueTrimmed.slice(0, at),
+              feed: valueTrimmed.slice(at + 1),
+            };
+          }
+
+          '''
+
+              if marker not in text:
+                  raise SystemExit(
+                      "Could not locate sources.ts insertion point"
+                  )
+
+              text = text.replace(
+                  marker,
+                  helper + marker,
+                  1
+              )
+
+          old = """      const title = entry.title ?? entry.name ?? '';
+          push({
+            channel: entry.channel ?? entry.tvg_id ?? null,
+            feed: entry.feed ?? null,"""
+
+          new = """      const identity = splitChannelFeed(
+            entry.channel ?? entry.tvg_id ?? null
+          );
+
+          push({
+            channel: identity.channel,
+            feed: entry.feed ?? identity.feed,"""
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
+          const title = entry.title || entry.attributes['tvg-name'] || '';
+          push({
+            channel: tvgId,
+            feed: null,"""
+
+          new = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
+          const identity = splitChannelFeed(tvgId);
+          const title = entry.title || entry.attributes['tvg-name'] || '';
+
+          push({
+            channel: identity.channel,
+            feed: identity.feed,"""
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
@@ -186,12 +276,22 @@ jobs:
           path.write_text(text)
           PY
 
+      - name: Restore health database
+        working-directory: nexus
+        run: |
+          mkdir -p .data
+
+          git fetch origin state:state --depth=1 2>/dev/null || true
+
+          git show state:health.json \
+            > .data/health.json 2>/dev/null || true
+
       - name: Install Dearbulut dependencies
         working-directory: nexus
         run: |
           npm ci
 
-      - name: Aggregate curated channel dataset
+      - name: Aggregate curated dataset
         working-directory: nexus
         run: |
           npm run cli -- aggregate
@@ -206,156 +306,399 @@ jobs:
         run: |
           npm install --no-audit --no-fund
 
-      - name: Build curated EPG channel list
+      - name: Build feed-specific EPG channel lists
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
           import xml.etree.ElementTree as ET
+          import re
 
           dataset_path = Path("nexus/.data/channels.json")
-          output_path = Path("epg/curated.channels.xml")
-
-          if not dataset_path.exists():
-              raise SystemExit(
-                  f"Missing curated dataset: {dataset_path}"
-              )
+          config_path = Path("nexus/config/epg-grab.yml")
+          output_dir = Path("epg/custom")
+          output_dir.mkdir(parents=True, exist_ok=True)
 
           dataset = json.loads(dataset_path.read_text())
 
-          root = ET.Element("channels")
+          channels = dataset.get("channels", [])
+          guides = dataset.get("guides", [])
 
-          seen = set()
-          channel_count = 0
-          guide_count = 0
+          curated_ids = {
+              str(channel.get("id", "")).strip()
+              for channel in channels
+              if channel.get("id")
+          }
 
-          for channel in dataset.get("channels", []):
+          feed_by_channel = {}
+
+          for channel in channels:
               channel_id = str(channel.get("id", "")).strip()
+
+              feeds = set()
+
+              for stream in channel.get("streams", []):
+                  feed = stream.get("feed")
+
+                  if feed:
+                      feeds.add(str(feed).strip())
+
+              feed_by_channel[channel_id] = feeds
+
+          sites = []
+          current = None
+
+          for raw in config_path.read_text().splitlines():
+              line = raw.replace("\r", "").rstrip()
+
+              if not line.strip() or line.lstrip().startswith("#"):
+                  continue
+
+              stripped = line.strip()
+
+              if stripped == "sites:":
+                  continue
+
+              item = re.match(r"^\s*-\s*(.*)$", line)
+
+              if item:
+                  if current and current.get("site") and current.get("enabled", True):
+                      sites.append(current)
+
+                  current = {}
+
+                  if item.group(1):
+                      m = re.match(
+                          r"^([A-Za-z_][\w-]*)\s*:\s*(.*)$",
+                          item.group(1)
+                      )
+
+                      if m:
+                          value = m.group(2).strip()
+                          value = value.strip("'\"")
+                          current[m.group(1)] = value
+
+                  continue
+
+              if current is not None:
+                  m = re.match(
+                      r"^\s*([A-Za-z_][\w-]*)\s*:\s*(.*)$",
+                      line
+                  )
+
+                  if not m:
+                      continue
+
+                  key = m.group(1)
+                  value = m.group(2).strip()
+
+                  if value == "true":
+                      value = True
+                  elif value == "false":
+                      value = False
+                  elif re.fullmatch(r"-?\d+", value):
+                      value = int(value)
+                  else:
+                      value = value.strip("'\"")
+
+                  current[key] = value
+
+          if current and current.get("site") and current.get("enabled", True):
+              sites.append(current)
+
+          by_site = {}
+
+          for guide in guides:
+              channel_id = str(
+                  guide.get("channel") or ""
+              ).strip()
+
+              site = str(
+                  guide.get("site") or ""
+              ).strip()
+
+              site_id = str(
+                  guide.get("site_id") or ""
+              ).strip()
+
+              lang = str(
+                  guide.get("lang") or "en"
+              ).strip()
+
+              feed = guide.get("feed")
 
               if not channel_id:
                   continue
 
-              channel_count += 1
+              if channel_id not in curated_ids:
+                  continue
 
-              for guide in channel.get("guides", []):
-                  site = str(guide.get("site", "")).strip()
-                  site_id = str(guide.get("site_id", "")).strip()
-                  lang = str(guide.get("lang", "")).strip()
-                  xmltv_id = channel_id
+              if not site or not site_id:
+                  continue
 
-                  if not site or not site_id:
+              desired_feeds = feed_by_channel.get(
+                  channel_id,
+                  set()
+              )
+
+              if desired_feeds:
+                  if feed:
+                      if str(feed).strip() not in desired_feeds:
+                          continue
+                  else:
                       continue
 
-                  key = (
-                      site.lower(),
-                      site_id.lower(),
-                      lang.lower(),
-                      xmltv_id.lower(),
-                  )
+              xmltv_id = channel_id
 
-                  if key in seen:
-                      continue
+              if feed:
+                  xmltv_id += "@" + str(feed).strip()
 
-                  seen.add(key)
+              key = (
+                  site.lower(),
+                  site_id.lower(),
+                  lang.lower(),
+                  xmltv_id.lower(),
+              )
 
-                  element = ET.SubElement(
-                      root,
-                      "channel",
-                      {
-                          "site": site,
-                          "site_id": site_id,
-                          "lang": lang or "en",
-                          "xmltv_id": xmltv_id,
-                      },
-                  )
+              by_site.setdefault(site, {})
 
-                  element.text = channel.get(
-                      "name",
-                      channel_id
-                  )
+              if key in by_site[site]:
+                  continue
 
-                  guide_count += 1
+              channel_name = next(
+                  (
+                      str(c.get("name", channel_id))
+                      for c in channels
+                      if str(c.get("id", "")) == channel_id
+                  ),
+                  channel_id,
+              )
 
-          try:
-              ET.indent(root, space="  ")
-          except AttributeError:
-              pass
-
-          tree = ET.ElementTree(root)
-
-          tree.write(
-              output_path,
-              encoding="utf-8",
-              xml_declaration=True,
-          )
+              by_site[site][key] = {
+                  "site": site,
+                  "site_id": site_id,
+                  "lang": lang,
+                  "xmltv_id": xmltv_id,
+                  "name": channel_name,
+              }
 
           print()
           print("========================================")
-          print("CURATED EPG CHANNEL LIST")
+          print("FEED-SPECIFIC EPG CHANNEL LISTS")
           print("========================================")
-          print(f"Curated Nexus channels: {channel_count}")
-          print(f"Guide mappings kept: {guide_count}")
-          print(f"Output: {output_path}")
+
+          total = 0
+
+          for site_config in sites:
+              site = str(site_config["site"])
+
+              entries = list(
+                  by_site.get(site, {}).values()
+              )
+
+              slug = (
+                  str(
+                      site_config.get("slug")
+                      or re.sub(
+                          r"[^a-z0-9]+",
+                          "-",
+                          site.lower()
+                      )
+                  )
+                  .strip("-")
+              )
+
+              output = output_dir / f"{slug}.channels.xml"
+
+              root = ET.Element("channels")
+
+              for entry in sorted(
+                  entries,
+                  key=lambda x: (
+                      x["xmltv_id"],
+                      x["site_id"],
+                  )
+              ):
+                  node = ET.SubElement(
+                      root,
+                      "channel",
+                      {
+                          "site": entry["site"],
+                          "site_id": entry["site_id"],
+                          "lang": entry["lang"],
+                          "xmltv_id": entry["xmltv_id"],
+                      },
+                  )
+
+                  node.text = entry["name"]
+
+              try:
+                  ET.indent(root, space="  ")
+              except AttributeError:
+                  pass
+
+              ET.ElementTree(root).write(
+                  output,
+                  encoding="utf-8",
+                  xml_declaration=True,
+              )
+
+              print(
+                  f"{site}: {len(entries)} channel/feed mapping(s)"
+              )
+
+              total += len(entries)
+
+          print("----------------------------------------")
+          print(f"Total feed mappings: {total}")
           print("========================================")
           PY
 
-          echo
-          echo "EPG channel count:"
-          grep -c '<channel ' epg/curated.channels.xml || true
-
-          echo
-          echo "First EPG entries:"
-          grep '<channel ' epg/curated.channels.xml \
-            | head -30 || true
-
-      - name: Grab curated EPG
+      - name: Grab feed-specific EPG sources
         run: |
           set -e
 
           mkdir -p guides
 
-          rm -f epg/guide.xml
-          rm -f epg/guide.xml.gz
+          sites=$(node - <<'NODE'
+          const fs = require("fs");
 
-          (
-            cd epg
+          const text = fs.readFileSync(
+            "nexus/config/epg-grab.yml",
+            "utf8"
+          );
 
-            npm run grab -- \
-              --channels=curated.channels.xml \
-              --output=guide.xml \
-              --days=3 \
-              --timeout=30000 \
-              --maxConnections=8 \
-              --gzip
-          ) || true
+          const sites = [];
+          let current = null;
 
-          if [ ! -s epg/guide.xml ]; then
-            echo "No guide produced"
-            exit 0
-          fi
+          for (const raw of text.split(/\r?\n/)) {
+            const line = raw.replace(/\s+#.*$/, "").trimEnd();
 
-          programmes=$(grep -c '<programme' epg/guide.xml || true)
+            if (!line.trim() || line.trim().startsWith("#")) {
+              continue;
+            }
 
-          if [ "${programmes:-0}" -lt 1 ]; then
-            echo "No programmes produced"
-            exit 0
-          fi
+            if (line.trim() === "sites:") {
+              continue;
+            }
 
-          if [ -f epg/guide.xml.gz ]; then
-            cp epg/guide.xml.gz \
-              guides/curated.xml.gz
-          else
-            gzip -9 -c epg/guide.xml > \
-              guides/curated.xml.gz
-          fi
+            const item = /^\s*-\s*(.*)$/.exec(line);
 
-          echo
-          echo "========================================"
-          echo "CURATED EPG COMPLETE"
-          echo "========================================"
-          echo "Programmes: $programmes"
-          echo "Output: guides/curated.xml.gz"
-          echo "========================================"
+            if (item) {
+              if (current && current.site && current.enabled !== false) {
+                sites.push(current);
+              }
+
+              current = {};
+
+              if (item[1]) {
+                const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(item[1]);
+
+                if (m) {
+                  current[m[1]] = m[2].replace(/^['"]|['"]$/g, "");
+                }
+              }
+
+              continue;
+            }
+
+            if (current) {
+              const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
+                line.trim()
+              );
+
+              if (!m) {
+                continue;
+              }
+
+              let value = m[2].trim();
+
+              if (value === "true") {
+                value = true;
+              } else if (value === "false") {
+                value = false;
+              } else if (/^-?\d+$/.test(value)) {
+                value = Number(value);
+              } else {
+                value = value.replace(/^['"]|['"]$/g, "");
+              }
+
+              current[m[1]] = value;
+            }
+          }
+
+          if (current && current.site && current.enabled !== false) {
+            sites.push(current);
+          }
+
+          for (const site of sites) {
+            console.log(
+              [
+                site.site,
+                site.slug ||
+                  String(site.site).replace(/[^a-z0-9]+/gi, "-"),
+                site.timeout || 30000,
+                site.max_connections || 8
+              ].join("|")
+            );
+          }
+          NODE
+          )
+
+          while IFS="|" read -r site slug timeout connections; do
+            [ -z "$site" ] && continue
+
+            channels_file="epg/custom/${slug}.channels.xml"
+
+            echo "========================================"
+            echo "EPG: $site"
+            echo "========================================"
+
+            if [ ! -s "$channels_file" ]; then
+              echo "No curated feed mappings for $site"
+              continue
+            fi
+
+            echo "Channel mappings:"
+            grep -c '<channel ' "$channels_file" || true
+
+            rm -f epg/guide.xml
+            rm -f epg/guide.xml.gz
+
+            (
+              cd epg
+
+              npm run grab -- \
+                --channels="custom/${slug}.channels.xml" \
+                --output=guide.xml \
+                --days=3 \
+                --timeout="$timeout" \
+                --maxConnections="$connections" \
+                --gzip
+            ) || true
+
+            if [ ! -s epg/guide.xml ]; then
+              echo "No guide produced for $site"
+              continue
+            fi
+
+            programmes=$(grep -c '<programme' epg/guide.xml || true)
+
+            if [ "${programmes:-0}" -lt 1 ]; then
+              echo "No programmes produced for $site"
+              continue
+            fi
+
+            if [ -f epg/guide.xml.gz ]; then
+              cp epg/guide.xml.gz \
+                "guides/${slug}.xml.gz"
+            else
+              gzip -9 -c epg/guide.xml > \
+                "guides/${slug}.xml.gz"
+            fi
+
+            echo "Saved $site: $programmes programme(s)"
+          done <<< "$sites"
 
       - name: Publish EPG state
         env:
@@ -898,6 +1241,96 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Preserve stream feed identity
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/aggregate/sources.ts")
+          text = path.read_text()
+
+          if "function splitChannelFeed(" not in text:
+              marker = "interface JsonStreamShape {"
+
+              helper = r'''
+          function splitChannelFeed(value: string | null): {
+            channel: string | null;
+            feed: string | null;
+          } {
+            const valueTrimmed = value?.trim() ?? "";
+
+            if (!valueTrimmed) {
+              return {
+                channel: null,
+                feed: null,
+              };
+            }
+
+            const at = valueTrimmed.indexOf("@");
+
+            if (at <= 0 || at === valueTrimmed.length - 1) {
+              return {
+                channel: valueTrimmed,
+                feed: null,
+              };
+            }
+
+            return {
+              channel: valueTrimmed.slice(0, at),
+              feed: valueTrimmed.slice(at + 1),
+            };
+          }
+
+          '''
+
+              if marker not in text:
+                  raise SystemExit(
+                      "Could not locate sources.ts insertion point"
+                  )
+
+              text = text.replace(
+                  marker,
+                  helper + marker,
+                  1
+              )
+
+          old = """      const title = entry.title ?? entry.name ?? '';
+          push({
+            channel: entry.channel ?? entry.tvg_id ?? null,
+            feed: entry.feed ?? null,"""
+
+          new = """      const identity = splitChannelFeed(
+            entry.channel ?? entry.tvg_id ?? null
+          );
+
+          push({
+            channel: identity.channel,
+            feed: entry.feed ?? identity.feed,"""
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
+          const title = entry.title || entry.attributes['tvg-name'] || '';
+          push({
+            channel: tvgId,
+            feed: null,"""
+
+          new = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
+          const identity = splitChannelFeed(tvgId);
+          const title = entry.title || entry.attributes['tvg-name'] || '';
+
+          push({
+            channel: identity.channel,
+            feed: identity.feed,"""
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
       - name: Restore state
         working-directory: nexus
         run: |
@@ -961,28 +1394,28 @@ jobs:
 
           replacements = {
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvtv-us.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/tvtv-us.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/pluto-tv.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/pluto-tv.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/plex-tv.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/plex-tv.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvplus-com-tr.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/tvplus-com-tr.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/digiturk-com-tr.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/digiturk-com-tr.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/turksatkablo-com-tr.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/turksatkablo-com-tr.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/mi-tv.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/mi-tv.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/programtv-onet-pl.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/programtv-onet-pl.xml.gz",
           }
 
           for old, new in replacements.items():
