@@ -52,15 +52,12 @@ jobs:
           python <<'PY'
           import re
           import sys
-          import time
-          import urllib.parse
           import urllib.request
 
           HEADERS = {
               "User-Agent": "Mozilla/5.0"
           }
 
-          # These channels were already working and must not be changed.
           FROZEN = {
               "PBS": (
                   "PBS.us@KQED",
@@ -100,14 +97,17 @@ jobs:
               ),
           }
 
-          # Every non-frozen candidate has an explicit identity.
-          # The identity is checked BEFORE the URL is allowed to win.
           CANDIDATES = {
               "ABC": [
                   (
                       "WABCTV.us",
-                      "WABC-TV (ABC New York City)",
-                      "https://api.abcotvs.com/v3/wabc/m3u8/url?id=503123&key=yuemix"
+                      "WABC-TV New York ABC",
+                      "https://fl61.moveonjoy.com/NY_NEW_YORK_ABC/index.m3u8"
+                  ),
+                  (
+                      "WABCTV.us",
+                      "WABC-TV New York ABC",
+                      "http://fl61.moveonjoy.com/NY_NEW_YORK_ABC/index.m3u8"
                   ),
               ],
 
@@ -147,26 +147,16 @@ jobs:
                   ),
               ],
 
-              # Actual FOX network affiliate.
-              # WUTV is FOX Buffalo, not Fox News/Fox Deportes/Fox Business.
-              "FOX": [
-                  (
-                      "WUTV.us",
-                      "WUTV (FOX Buffalo)",
-                      "https://www.foxsports.com/live/wutv"
-                  ),
-                  (
-                      "WUTV.us",
-                      "WUTV (FOX Buffalo)",
-                      "http://stream.cammonitorplus.net/1799/index.m3u8"
-                  ),
-              ],
-
               "The CW": [
                   (
-                      "TheCW.us@East",
-                      "The CW East",
-                      "http://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"
+                      "WPIX.us",
+                      "WPIX The CW New York",
+                      "http://encodercdn1.frontline.ca/kamino/output/pix11_720p/playlist.m3u8"
+                  ),
+                  (
+                      "WPIX.us",
+                      "WPIX The CW New York",
+                      "https://encodercdn1.frontline.ca/kamino/output/pix11_720p/playlist.m3u8"
                   ),
               ],
 
@@ -299,14 +289,13 @@ jobs:
               ("ABC", "ABC", "Broadcast"),
               ("CBS", "CBS", "Broadcast"),
               ("NBC", "NBC", "Broadcast"),
-              ("FOX", "FOX", "Broadcast"),
               ("The CW", "The CW", "Broadcast"),
               ("PBS", "PBS", "Broadcast"),
               ("CNN", "CNN", "News"),
               ("CNBC", "CNBC", "News"),
               ("ESPN", "ESPN", "Sports"),
               ("ESPN2", "ESPN2", "Sports"),
-              ("USA Network", "USA", "Entertainment"),
+              ("USA Network", "USA Network", "Entertainment"),
               ("TNT", "TNT", "Entertainment"),
               ("TBS", "TBS", "Entertainment"),
               ("FX", "FX", "Entertainment"),
@@ -327,14 +316,11 @@ jobs:
               ("Game Show Network", "Game Show Network", "Entertainment"),
           ]
 
-          # Exact identity requirements.
-          # No substring matching such as "fox" or "cw".
           REQUIRED_IDS = {
-              "ABC": {"WABCTV.us", "ABC.us@East"},
+              "ABC": {"WABCTV.us"},
               "CBS": {"CBS.us@East"},
               "NBC": {"NBC.us@East"},
-              "FOX": {"WUTV.us", "WNYW.us", "WFXT.us"},
-              "The CW": {"TheCW.us@East", "TheCW.us@WPIX"},
+              "The CW": {"WPIX.us"},
               "CNBC": {"CNBC.us@East"},
               "ESPN": {"ESPN.us"},
               "ESPN2": {"ESPN2.us"},
@@ -350,15 +336,7 @@ jobs:
               "HGTV": {"HGTV.us@East"},
           }
 
-          # Explicitly forbidden identities.
           FORBIDDEN = {
-              "FOX": {
-                  "FoxNewsChannel.us@SD",
-                  "FoxBusiness.us@East",
-                  "FoxWeather.us@East",
-                  "FoxSports.us@SD",
-                  "FoxDeportes.us@SD",
-              },
               "ABC": {
                   "ABCNews.us@East",
                   "ABCNewsLive.us@SD",
@@ -380,11 +358,6 @@ jobs:
               return urllib.request.urlopen(req, timeout=timeout)
 
           def test_stream(url):
-              """
-              Verify that the endpoint actually returns something stream-like.
-              This does NOT decide channel identity; identity is supplied by the
-              explicit candidate metadata above.
-              """
               try:
                   with fetch(url) as r:
                       status = getattr(r, "status", 200)
@@ -399,14 +372,12 @@ jobs:
 
                       text = data.decode("utf-8", errors="ignore")
 
-                      # HLS playlist
                       if b"#EXTM3U" in data:
                           if "#EXTINF:" in text or "#EXT-X-STREAM-INF:" in text:
                               return True, f"HLS {status} {content_type}"
 
                           return False, "HLS playlist has no media entries"
 
-                      # Transport stream / binary media
                       if (
                           "video" in content_type
                           or "mpeg" in content_type
@@ -415,7 +386,6 @@ jobs:
                       ):
                           return True, f"media {status} {content_type}"
 
-                      # Some public HLS servers send generic content types.
                       if len(data) >= 1024 and not text.lstrip().lower().startswith(
                           ("<html", "<!doctype", "<head")
                       ):
@@ -431,16 +401,13 @@ jobs:
                   return False
 
               allowed = REQUIRED_IDS.get(channel)
+
               if allowed is not None and stream_id not in allowed:
                   return False
 
               return True
 
           def find_in_m3u(path, channel):
-              """
-              Search the public IPTV-org playlist, but only accept an entry
-              whose tvg-id exactly matches the required identity.
-              """
               results = []
 
               with open(path, "r", encoding="utf-8", errors="ignore") as f:
@@ -451,23 +418,20 @@ jobs:
                       continue
 
                   m_id = re.search(r'tvg-id="([^"]*)"', line)
-                  m_name = re.search(r',(.+)$', line)
 
                   if not m_id or i + 1 >= len(lines):
                       continue
 
                   stream_id = m_id.group(1)
-                  name = m_name.group(1).strip() if m_name else ""
-
-                  if not identity_allowed(channel, stream_id):
-                      continue
-
                   url = lines[i + 1].strip()
 
                   if not url.startswith(("http://", "https://")):
                       continue
 
-                  results.append((stream_id, name, url))
+                  if not identity_allowed(channel, stream_id):
+                      continue
+
+                  results.append((stream_id, line, url))
 
               return results
 
@@ -483,30 +447,35 @@ jobs:
               if channel in FROZEN:
                   stream_id, url = FROZEN[channel]
                   verified[channel] = (stream_id, url)
+
                   print(f"FROZEN: {channel}")
                   print(f"        {url}")
                   continue
 
               candidates = []
 
-              # First search IPTV-org sources using exact tvg-id identity.
               for source in ("current-us.m3u", "new-york.m3u", "boston.m3u"):
                   for item in find_in_m3u(source, channel):
                       if item not in candidates:
                           candidates.append(item)
 
-              # Then append only explicitly identified candidates.
               for stream_id, identity_name, url in CANDIDATES.get(channel, []):
                   if not identity_allowed(channel, stream_id):
                       continue
 
-                  item = (stream_id, identity_name, url)
+                  item = (
+                      stream_id,
+                      f"#EXTINF:-1,{identity_name}",
+                      url
+                  )
+
                   if item not in candidates:
                       candidates.append(item)
 
               found = None
 
               for stream_id, identity_name, url in candidates:
+
                   if not identity_allowed(channel, stream_id):
                       print(f"REJECTED IDENTITY: {channel}")
                       print(f"                 {stream_id}")
@@ -516,10 +485,12 @@ jobs:
 
                   if ok:
                       found = (stream_id, url)
+
                       print(f"VERIFIED: {channel}")
                       print(f"          ID:  {stream_id}")
                       print(f"          URL: {url}")
                       print(f"          TEST: {reason}")
+
                       break
 
                   print(f"FAILED: {channel}")
@@ -535,7 +506,6 @@ jobs:
 
               verified[channel] = found
 
-          # Write final playlist.
           with open("public/channels.m3u", "w", encoding="utf-8") as out:
               out.write("#EXTM3U\n")
 
@@ -570,7 +540,6 @@ jobs:
         run: |
           python <<'PY'
           import gzip
-          import re
           import xml.etree.ElementTree as ET
 
           PLAYLIST = "public/channels.m3u"
@@ -581,7 +550,6 @@ jobs:
               "ABC",
               "CBS",
               "NBC",
-              "FOX",
               "The CW",
               "PBS",
               "CNN",
@@ -609,46 +577,11 @@ jobs:
               "Game Show Network",
           ]
 
-          def parse_playlist():
-              result = []
-
-              with open(PLAYLIST, "r", encoding="utf-8") as f:
-                  lines = [x.rstrip("\n") for x in f]
-
-              for i, line in enumerate(lines):
-                  if not line.startswith("#EXTINF"):
-                      continue
-
-                  m = re.search(r'tvg-id="([^"]*)"', line)
-                  n = re.search(r',(.+)$', line)
-
-                  if not m or not n:
-                      continue
-
-                  result.append(
-                      (
-                          n.group(1).strip(),
-                          m.group(1).strip()
-                      )
-                  )
-
-              return result
-
-          playlist_channels = parse_playlist()
-
-          # Explicit guide IDs. These are exact XMLTV IDs, not substring matches.
           GUIDE_IDS = {
-              "ABC": [
-                  "WABCTV.us",
-                  "ABC.us@East",
-              ],
+              "ABC": ["WABCTV.us"],
               "CBS": ["CBS.us@East"],
               "NBC": ["NBC.us@East"],
-              "FOX": ["WUTV.us"],
-              "The CW": [
-                  "TheCW.us@East",
-                  "TheCW.us@WPIX",
-              ],
+              "The CW": ["WPIX.us"],
               "PBS": ["PBS.us@KQED"],
               "CNN": ["CNN.us@East"],
               "CNBC": ["CNBC.us@East"],
@@ -667,9 +600,7 @@ jobs:
               "Disney Channel": ["DisneyChannel.us@East"],
               "Nickelodeon": ["Nickelodeon.us@East"],
               "Cartoon Network": ["CartoonNetwork.us@East"],
-              "Comedy Central": [
-                  "ComedyCentral.us@East"
-              ],
+              "Comedy Central": ["ComedyCentral.us@East"],
               "TCM": ["TCM.us@East"],
               "Hallmark Channel": ["HallmarkChannel.us@East"],
               "AMC": ["AMC.us@East"],
@@ -677,18 +608,34 @@ jobs:
               "Game Show Network": ["GameShowNetwork.us@SD"],
           }
 
-          source = gzip.open(SOURCE, "rb")
-          root = ET.parse(source).getroot()
-          source.close()
+          with open(PLAYLIST, "r", encoding="utf-8") as f:
+              lines = [x.rstrip("\n") for x in f]
 
-          wanted_ids = set()
+          playlist_channels = []
 
-          for channel_name, playlist_id in playlist_channels:
-              for candidate in GUIDE_IDS.get(channel_name, []):
-                  if candidate == playlist_id or candidate in GUIDE_IDS.get(channel_name, []):
-                      wanted_ids.add(candidate)
+          for i, line in enumerate(lines):
+              if not line.startswith("#EXTINF"):
+                  continue
 
-          # Build exact ID lookup.
+              if i + 1 >= len(lines):
+                  continue
+
+              import re
+
+              m_id = re.search(r'tvg-id="([^"]*)"', line)
+              m_name = re.search(r',(.+)$', line)
+
+              if m_id and m_name:
+                  playlist_channels.append(
+                      (
+                          m_name.group(1).strip(),
+                          m_id.group(1).strip()
+                      )
+                  )
+
+          with gzip.open(SOURCE, "rb") as f:
+              root = ET.parse(f).getroot()
+
           source_channel_ids = {
               c.attrib.get("id", "")
               for c in root.findall("channel")
@@ -699,7 +646,6 @@ jobs:
           for channel_name in CHANNELS:
               candidates = GUIDE_IDS.get(channel_name, [])
 
-              # Prefer exact XMLTV ID.
               for candidate in candidates:
                   if candidate in source_channel_ids:
                       selected_ids.add(candidate)
@@ -717,11 +663,13 @@ jobs:
 
           for channel in root.findall("channel"):
               cid = channel.attrib.get("id", "")
+
               if cid in selected_ids:
                   new_root.append(channel)
 
           for programme in root.findall("programme"):
               cid = programme.attrib.get("channel", "")
+
               if cid in selected_ids:
                   new_root.append(programme)
 
@@ -755,8 +703,8 @@ jobs:
           echo "Guide channels:    $GUIDE_CHANNEL_COUNT"
           echo "EPG programmes:    $PROGRAM_COUNT"
 
-          if [ "$CHANNEL_COUNT" -ne 29 ]; then
-            echo "ERROR: Expected exactly 29 playlist channels."
+          if [ "$CHANNEL_COUNT" -ne 28 ]; then
+            echo "ERROR: Expected exactly 28 playlist channels."
             exit 1
           fi
 
@@ -770,20 +718,16 @@ jobs:
             exit 1
           fi
 
-          # Make absolutely sure Fox News was not accidentally retained.
-          if grep -qi 'Fox News' public/channels.m3u; then
-            echo "ERROR: Fox News is still present."
+          if grep -qi '^#EXTINF.*FOX' public/channels.m3u; then
+            echo "ERROR: FOX is still present in the playlist."
             exit 1
           fi
 
-          # Make sure the FOX entry isn't Fox Deportes or another Fox-branded
-          # non-network channel.
-          if grep -qi 'FOX_DEPORTES\|Fox Deportes\|Fox News\|Fox Business\|Fox Weather' public/channels.m3u; then
+          if grep -qi 'Fox News\|Fox Deportes\|Fox Business\|Fox Weather' public/channels.m3u; then
             echo "ERROR: Invalid FOX-branded channel detected."
             exit 1
           fi
 
-          # Make sure The CW wasn't replaced with an unrelated channel.
           if grep -qi 'natgeo\|nationalgeographic' public/channels.m3u; then
             echo "ERROR: Unrelated National Geographic stream detected."
             exit 1
