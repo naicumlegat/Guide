@@ -29,18 +29,25 @@ jobs:
           rm -rf public
           mkdir -p public
 
-      - name: Find current working streams
+      - name: Find replacement streams
         run: |
           curl -L --fail \
             "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us.m3u" \
             -o current-us.m3u
+
+          curl -L --fail \
+            "https://iptv-org.github.io/iptv/cities/usnyc.m3u" \
+            -o new-york.m3u
+
+          curl -L --fail \
+            "https://iptv-org.github.io/iptv/cities/usbos.m3u" \
+            -o boston.m3u
 
           python <<'PY'
           import re
           import urllib.request
           import concurrent.futures
 
-          # Your 30 channels and their previous fallback URLs.
           channels = [
               ("ABC.us@East", "Broadcast", "ABC",
                "http://190.11.225.124:5000/live/abc_hd/playlist.m3u8"),
@@ -57,9 +64,11 @@ jobs:
               ("TheCW.us@SD", "Broadcast", "The CW",
                "https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"),
 
+              # FROZEN - already working
               ("PBS.us@KQED", "Broadcast", "PBS",
                "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"),
 
+              # FROZEN - already working
               ("CNN.us@East", "News", "CNN",
                "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"),
 
@@ -93,33 +102,41 @@ jobs:
               ("ParamountNetwork.us@East", "Entertainment", "Paramount Network",
                "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"),
 
+              # FROZEN - already working
               ("SYFY.us@East", "Entertainment", "Syfy",
                "http://23.237.104.106:8080/USA_SYFY/index.m3u8"),
 
+              # FROZEN - DO NOT CHANGE BRAVO
               ("Bravo.us@East", "Entertainment", "Bravo",
                "http://fl2.moveonjoy.com/BRAVO/index.m3u8"),
 
+              # FROZEN - already working
               ("E.us@East", "Entertainment", "E!",
                "http://23.237.104.106:8080/USA_E/index.m3u8"),
 
               ("Freeform.us@East", "Entertainment", "Freeform",
                "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"),
 
+              # FROZEN - already working
               ("DisneyChannel.us@East", "Kids", "Disney Channel",
                "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"),
 
+              # FROZEN - already working
               ("Nickelodeon.us@East", "Kids", "Nickelodeon",
                "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"),
 
+              # FROZEN - already working
               ("CartoonNetwork.us@East", "Kids", "Cartoon Network",
                "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"),
 
+              # TEST ALTERNATIVES - looking for better than current
               ("ComedyCentral.us@East", "Comedy", "Comedy Central",
                "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"),
 
               ("TCM.us@East", "Movies", "TCM",
                "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"),
 
+              # FROZEN - already working
               ("HallmarkChannel.us@East", "Movies", "Hallmark Channel",
                "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"),
 
@@ -129,28 +146,160 @@ jobs:
               ("HGTV.us@East", "Lifestyle", "HGTV",
                "http://212.102.60.231/HGTV/index.m3u8"),
 
+              # FROZEN - already working
               ("GameShowNetwork.us@East", "Entertainment", "Game Show Network",
                "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"),
           ]
 
-          # Some channels use a different ID in IPTV-org.
+          FROZEN = {
+              "PBS.us@KQED",
+              "CNN.us@East",
+              "SYFY.us@East",
+              "Bravo.us@East",
+              "E.us@East",
+              "DisneyChannel.us@East",
+              "Nickelodeon.us@East",
+              "CartoonNetwork.us@East",
+              "HallmarkChannel.us@East",
+              "GameShowNetwork.us@East",
+          }
+
+          # Explicit alternatives for channels that were reported broken.
+          #
+          # Order matters.
+          # NYC/Boston is preferred for local broadcast networks.
+          alternatives = {
+              "ABC.us@East": [
+                  "https://fl61.moveonjoy.com/NY_New_York_ABC/index.m3u8",
+                  "http://143.244.60.30/ABC_EAST/index.m3u8",
+                  "https://fl1.moveonjoy.com/ABC_EAST/index.m3u8",
+              ],
+
+              "CBS.us@East": [
+                  "http://143.244.60.30/CBSEAST/index.m3u8",
+                  "https://fl1.moveonjoy.com/CBS_EAST/index.m3u8",
+              ],
+
+              "NBC.us@East": [
+                  "https://fl61.moveonjoy.com/NY_New_York_NBC/mpegts",
+                  "http://143.244.60.30/NBC_EAST/index.m3u8",
+                  "https://fl1.moveonjoy.com/NBC_EAST/index.m3u8",
+              ],
+
+              "Fox.us@East": [
+                  "http://143.244.60.30/FOX_EAST/index.m3u8",
+                  "https://fl1.moveonjoy.com/FOX_EAST/index.m3u8",
+              ],
+
+              "TheCW.us@SD": [
+                  "https://dvrfl04.tulix.tv/teleup-wpix/mpegts",
+              ],
+
+              "FoxNewsChannel.us@SD": [
+                  "http://138.121.15.230:9002/FOX-NEWS/index.m3u8",
+                  "http://247preview.foxnews.com/hls/live/2020027/fncv3preview/primary.m3u8",
+              ],
+
+              "CNBC.us@East": [
+                  "http://143.244.60.30/CNBC/index.m3u8",
+                  "https://stream.livenewsplay.com:9443/hls/cnbc/cnbcsd.m3u8",
+              ],
+
+              "ESPN.us": [
+                  "https://dvrfl04.tulix.tv/teleup-espn/mpegts",
+                  "http://84.17.50.102/espn/index.m3u8",
+              ],
+
+              "ESPN2.us": [
+                  "https://dvrfl04.tulix.tv/teleup-espn2/mpegts",
+              ],
+
+              "USA.us@East": [
+                  "https://tvsen3.aynaott.com/dbbcY6NG/index.m3u8",
+                  "http://40.160.24.55/USA_NETWORK/index.m3u8",
+              ],
+
+              "TNT.us@East": [
+                  "http://143.244.60.30/TNT/index.m3u8",
+                  "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855455&extension=ts",
+              ],
+
+              "TBS.us@East": [
+                  "http://143.244.60.30/TBS/index.m3u8",
+                  "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855462&extension=ts",
+              ],
+
+              "FX.us@East": [
+                  "http://143.244.60.30/FX/index.m3u8",
+                  "http://23.237.104.106:8080/USA_FX/index.m3u8",
+              ],
+
+              "FXX.us@East": [
+                  "http://livex.pop-app.live/s4n/poplive/ch523/playlist.m3u8",
+                  "http://23.237.104.106:8080/USA_FXX/index.m3u8",
+              ],
+
+              "ParamountNetwork.us@East": [
+                  "http://170.254.18.106/PARAMOUNT/index.m3u8",
+                  "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
+              ],
+
+              "ComedyCentral.us@East": [
+                  "http://170.254.18.106/COMEDY_CENTRAL/index.m3u8",
+                  "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8",
+              ],
+
+              "TCM.us@East": [
+                  "http://143.244.60.30/TCM/index.m3u8",
+                  "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
+              ],
+
+              "AMC.us@East": [
+                  "http://190.11.225.124:5000/live/amc_hd/playlist.m3u8",
+                  "http://23.239.31.26:8989/amc/index.m3u8",
+                  "https://fl5.moveonjoy.com/AMC_NETWORK/index.m3u8",
+              ],
+
+              "HGTV.us@East": [
+                  "http://212.102.60.231/HGTV/index.m3u8",
+                  "http://23.237.104.106:8080/USA_HGTV/index.m3u8",
+                  "http://fl2.moveonjoy.com/HGTV/index.m3u8",
+              ],
+
+              "Freeform.us@East": [
+                  "http://23.237.104.106:8080/USA_FREEFORM/index.m3u8",
+                  "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
+              ],
+          }
+
           id_aliases = {
-              "USA.us@East": ["USA.us@East", "USANetwork.us@East"],
+              "USA.us@East": [
+                  "USA.us@East",
+                  "USANetwork.us@East",
+              ],
           }
 
           def parse_m3u(path):
               entries = []
-              lines = open(path, encoding="utf-8", errors="ignore").read().splitlines()
+              lines = open(
+                  path,
+                  encoding="utf-8",
+                  errors="ignore"
+              ).read().splitlines()
 
               for i, line in enumerate(lines):
                   if not line.startswith("#EXTINF"):
                       continue
 
-                  match = re.search(r'tvg-id="([^"]*)"', line)
-                  if not match:
-                      continue
+                  match = re.search(
+                      r'tvg-id="([^"]*)"',
+                      line
+                  )
 
-                  tvg_id = match.group(1)
+                  name_match = re.search(
+                      r',(.+)$',
+                      line
+                  )
 
                   if i + 1 >= len(lines):
                       continue
@@ -160,95 +309,281 @@ jobs:
                   if not url.startswith(("http://", "https://")):
                       continue
 
-                  entries.append((tvg_id, url))
+                  tvg_id = match.group(1) if match else ""
+                  name = name_match.group(1).strip() if name_match else ""
+
+                  entries.append({
+                      "id": tvg_id,
+                      "name": name,
+                      "url": url,
+                  })
 
               return entries
 
-          entries = parse_m3u("current-us.m3u")
+          current_entries = parse_m3u("current-us.m3u")
+          ny_entries = parse_m3u("new-york.m3u")
+          boston_entries = parse_m3u("boston.m3u")
+
+          def local_matches(entries, channel_name):
+              result = []
+
+              wanted = channel_name.lower()
+
+              for entry in entries:
+                  text = (
+                      entry["id"] + " " + entry["name"]
+                  ).lower()
+
+                  if wanted == "abc":
+                      if "abc" in text:
+                          result.append(entry["url"])
+
+                  elif wanted == "cbs":
+                      if "cbs" in text:
+                          result.append(entry["url"])
+
+                  elif wanted == "nbc":
+                      if "nbc" in text:
+                          result.append(entry["url"])
+
+                  elif wanted == "fox":
+                      if "fox" in text:
+                          result.append(entry["url"])
+
+                  elif wanted == "the cw":
+                      if (
+                          "cw" in text
+                          or "the cw" in text
+                      ):
+                          result.append(entry["url"])
+
+              return result
 
           def test_url(url):
               try:
                   request = urllib.request.Request(
                       url,
                       headers={
-                          "User-Agent": "Mozilla/5.0",
-                          "Range": "bytes=0-1023"
+                          "User-Agent":
+                              "Mozilla/5.0 "
+                              "(Windows NT 10.0; Win64; x64) "
+                              "AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) "
+                              "Chrome/131.0 Safari/537.36",
+                          "Accept":
+                              "*/*",
+                          "Connection":
+                              "close",
                       }
                   )
 
-                  with urllib.request.urlopen(request, timeout=8) as response:
-                      return response.status in range(200, 400)
+                  with urllib.request.urlopen(
+                      request,
+                      timeout=10
+                  ) as response:
+
+                      status = response.status
+
+                      if status < 200 or status >= 400:
+                          return False
+
+                      content_type = (
+                          response.headers.get(
+                              "Content-Type",
+                              ""
+                          ).lower()
+                      )
+
+                      data = response.read(8192)
+
+                      text = data.decode(
+                          "utf-8",
+                          errors="ignore"
+                      )
+
+                      # Real HLS playlist.
+                      if (
+                          "#EXTM3U" in text
+                          or "#EXT-X-" in text
+                      ):
+                          return True
+
+                      # MPEG-TS/raw video endpoints can legitimately
+                      # return binary data rather than an HLS manifest.
+                      if any(
+                          value in content_type
+                          for value in [
+                              "video/",
+                              "mpeg",
+                              "octet-stream",
+                          ]
+                      ):
+                          return True
+
+                      return False
+
               except Exception:
                   return False
 
-          # Build candidates for each requested channel.
+          # Build candidates.
           candidates = {}
 
           for tvg_id, group, name, fallback in channels:
-              ids = id_aliases.get(tvg_id, [tvg_id])
+
+              # FROZEN channels are NEVER tested/replaced.
+              if tvg_id in FROZEN:
+                  candidates[tvg_id] = [fallback]
+                  continue
 
               found = []
 
-              for source_id, url in entries:
-                  if source_id in ids:
-                      found.append(url)
+              # Explicit alternatives first.
+              found.extend(
+                  alternatives.get(tvg_id, [])
+              )
 
-              # Remove duplicates while preserving order.
-              candidates[tvg_id] = list(dict.fromkeys(found))
+              # NYC first, then Boston, for local networks.
+              if name in {
+                  "ABC",
+                  "CBS",
+                  "NBC",
+                  "FOX",
+                  "The CW",
+              }:
+                  found.extend(
+                      local_matches(
+                          ny_entries,
+                          name
+                      )
+                  )
+
+                  found.extend(
+                      local_matches(
+                          boston_entries,
+                          name
+                      )
+                  )
+
+              # Current IPTV-org exact ID candidates.
+              ids = id_aliases.get(
+                  tvg_id,
+                  [tvg_id]
+              )
+
+              for entry in current_entries:
+                  if entry["id"] in ids:
+                      found.append(entry["url"])
+
+              # Original fallback last.
+              found.append(fallback)
+
+              candidates[tvg_id] = list(
+                  dict.fromkeys(found)
+              )
 
           selected = {}
 
-          # Test current sources.
-          all_tests = {}
+          # Only broken/non-frozen channels are tested.
+          tests = {}
 
-          with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+          with concurrent.futures.ThreadPoolExecutor(
+              max_workers=24
+          ) as executor:
+
               for tvg_id, urls in candidates.items():
+
+                  if tvg_id in FROZEN:
+                      continue
+
                   for url in urls:
-                      all_tests[(tvg_id, url)] = executor.submit(
+                      tests[
+                          (tvg_id, url)
+                      ] = executor.submit(
                           test_url,
                           url
                       )
 
               for tvg_id, urls in candidates.items():
+
+                  if tvg_id in FROZEN:
+                      selected[tvg_id] = urls[0]
+                      continue
+
                   for url in urls:
                       try:
-                          if all_tests[(tvg_id, url)].result():
+                          if tests[
+                              (tvg_id, url)
+                          ].result():
+
                               selected[tvg_id] = url
                               break
+
                       except Exception:
                           pass
 
-          # Use the original URL only when no current source worked.
+          # Absolute safety fallback.
           for tvg_id, group, name, fallback in channels:
               if tvg_id not in selected:
                   selected[tvg_id] = fallback
 
-          with open("public/channels.m3u", "w", encoding="utf-8") as f:
+          with open(
+              "public/channels.m3u",
+              "w",
+              encoding="utf-8"
+          ) as f:
+
               f.write("#EXTM3U\n\n")
 
               for tvg_id, group, name, fallback in channels:
+
                   url = selected[tvg_id]
 
                   f.write(
                       f'#EXTINF:-1 tvg-id="{tvg_id}" '
                       f'group-title="{group}",{name}\n'
                   )
+
                   f.write(url + "\n\n")
 
           print()
-          print("Final playlist:")
+          print("========================================")
+          print("FINAL STREAM SELECTION")
+          print("========================================")
           print()
 
           for tvg_id, group, name, fallback in channels:
-              if selected[tvg_id] != fallback:
-                  print(f"REPLACED: {name}")
-                  print(f"  {selected[tvg_id]}")
+
+              url = selected[tvg_id]
+
+              if tvg_id in FROZEN:
+                  print(
+                      f"FROZEN:   {name}"
+                  )
+                  print(
+                      f"          {url}"
+                  )
+
+              elif url == fallback:
+                  print(
+                      f"FALLBACK: {name}"
+                  )
+                  print(
+                      f"          {url}"
+                  )
+
               else:
-                  print(f"FALLBACK: {name}")
-                  print(f"  {fallback}")
+                  print(
+                      f"REPLACED: {name}"
+                  )
+                  print(
+                      f"          {url}"
+                  )
 
           print()
-          print("Playlist channels:", len(channels))
+          print(
+              "Playlist channels:",
+              len(channels)
+          )
           PY
 
       - name: Download current US EPG
@@ -307,20 +642,36 @@ jobs:
               value = value or ""
               value = value.upper()
               value = value.replace("&AMP;", "AND")
-              value = re.sub(r"[^A-Z0-9!]+", " ", value)
-              return re.sub(r"\s+", " ", value).strip()
+              value = re.sub(
+                  r"[^A-Z0-9!]+",
+                  " ",
+                  value
+              )
+              return re.sub(
+                  r"\s+",
+                  " ",
+                  value
+              ).strip()
 
           def get_names(channel):
               return [
                   normalize(node.text)
-                  for node in channel.findall("display-name")
+                  for node in channel.findall(
+                      "display-name"
+                  )
                   if node.text
               ]
 
           def score_candidate(candidate, aliases):
-              channel_id = normalize(candidate["id"])
+              channel_id = normalize(
+                  candidate["id"]
+              )
+
               names = candidate["names"]
-              combined = " ".join([channel_id] + names)
+
+              combined = " ".join(
+                  [channel_id] + names
+              )
 
               forbidden = [
                   "PACIFIC",
@@ -331,65 +682,117 @@ jobs:
                   "MIDWEST",
               ]
 
-              if any(word in combined for word in forbidden):
+              if any(
+                  word in combined
+                  for word in forbidden
+              ):
                   return 0
 
-              if re.search(r"\bUS2\b", channel_id):
+              if re.search(
+                  r"\bUS2\b",
+                  channel_id
+              ):
                   return 0
 
-              if "AMC+" in combined or "AMC PLUS" in combined:
+              if (
+                  "AMC+" in combined
+                  or "AMC PLUS" in combined
+              ):
                   return 0
 
               score = 0
 
               for name in names:
                   for alias in aliases:
+
                       if name == alias:
-                          score = max(score, 1000)
-                      elif name.startswith(alias + " "):
-                          score = max(score, 800)
+                          score = max(
+                              score,
+                              1000
+                          )
+
+                      elif name.startswith(
+                          alias + " "
+                      ):
+                          score = max(
+                              score,
+                              800
+                          )
+
                       elif alias in name:
-                          score = max(score, 500)
+                          score = max(
+                              score,
+                              500
+                          )
 
               if score == 0:
                   return 0
 
-              if any(x in combined for x in ["EASTERN", "EAST", "EAST FEED"]):
+              if any(
+                  x in combined
+                  for x in [
+                      "EASTERN",
+                      "EAST",
+                      "EAST FEED",
+                  ]
+              ):
                   score += 300
 
-              if re.search(r"\bUS1\b", channel_id):
+              if re.search(
+                  r"\bUS1\b",
+                  channel_id
+              ):
                   score += 250
 
               return score
 
-          with gzip.open(SOURCE, "rb") as f:
+          with gzip.open(
+              SOURCE,
+              "rb"
+          ) as f:
               tree = ET.parse(f)
 
           root = tree.getroot()
 
           source_channels = []
 
-          for channel in root.findall("channel"):
+          for channel in root.findall(
+              "channel"
+          ):
+
               source_channels.append({
                   "element": channel,
-                  "id": channel.get("id", ""),
-                  "names": get_names(channel)
+                  "id": channel.get(
+                      "id",
+                      ""
+                  ),
+                  "names": get_names(
+                      channel
+                  )
               })
 
           selected = {}
           used_source_ids = set()
 
           for target_id, aliases in channels.items():
-              aliases = [normalize(x) for x in aliases]
+
+              aliases = [
+                  normalize(x)
+                  for x in aliases
+              ]
 
               best = None
               best_score = 0
 
               for candidate in source_channels:
+
                   if candidate["id"] in used_source_ids:
                       continue
 
-                  score = score_candidate(candidate, aliases)
+                  score = score_candidate(
+                      candidate,
+                      aliases
+                  )
 
                   if score > best_score:
                       best_score = score
@@ -397,16 +800,28 @@ jobs:
 
               if best is not None:
                   selected[target_id] = best
-                  used_source_ids.add(best["id"])
+                  used_source_ids.add(
+                      best["id"]
+                  )
 
           print()
-          print("Requested channels:", len(channels))
-          print("Matched EPG channels:", len(selected))
+          print(
+              "Requested channels:",
+              len(channels)
+          )
+          print(
+              "Matched EPG channels:",
+              len(selected)
+          )
           print()
 
           for target_id in channels:
+
               if target_id in selected:
-                  candidate = selected[target_id]
+
+                  candidate = selected[
+                      target_id
+                  ]
 
                   print(
                       "MATCH:",
@@ -414,50 +829,87 @@ jobs:
                       "<-",
                       candidate["id"],
                       "|",
-                      " / ".join(candidate["names"])
+                      " / ".join(
+                          candidate["names"]
+                      )
                   )
+
               else:
-                  print("SKIP:", target_id)
+                  print(
+                      "SKIP:",
+                      target_id
+                  )
 
           selected_elements = {
               id(candidate["element"])
               for candidate in selected.values()
           }
 
-          for channel in list(root.findall("channel")):
+          for channel in list(
+              root.findall("channel")
+          ):
+
               if id(channel) not in selected_elements:
                   root.remove(channel)
 
           source_to_target = {}
 
           for target_id, candidate in selected.items():
+
               source_id = candidate["id"]
-              candidate["element"].set("id", target_id)
-              source_to_target[source_id] = target_id
+
+              candidate["element"].set(
+                  "id",
+                  target_id
+              )
+
+              source_to_target[
+                  source_id
+              ] = target_id
 
           programme_count = 0
 
-          for programme in list(root.findall("programme")):
-              source_id = programme.get("channel")
+          for programme in list(
+              root.findall("programme")
+          ):
+
+              source_id = programme.get(
+                  "channel"
+              )
 
               if source_id in source_to_target:
+
                   programme.set(
                       "channel",
-                      source_to_target[source_id]
+                      source_to_target[
+                          source_id
+                      ]
                   )
+
                   programme_count += 1
+
               else:
                   root.remove(programme)
 
           print()
-          print("Final matched channels:", len(selected))
-          print("Programme entries:", programme_count)
+          print(
+              "Final matched channels:",
+              len(selected)
+          )
+          print(
+              "Programme entries:",
+              programme_count
+          )
 
           if not selected:
-              raise SystemExit("ERROR: No EPG channels were matched.")
+              raise SystemExit(
+                  "ERROR: No EPG channels were matched."
+              )
 
           if programme_count == 0:
-              raise SystemExit("ERROR: No programme entries were found.")
+              raise SystemExit(
+                  "ERROR: No programme entries were found."
+              )
 
           tree.write(
               OUTPUT,
@@ -466,7 +918,10 @@ jobs:
           )
 
           print()
-          print("Created:", OUTPUT)
+          print(
+              "Created:",
+              OUTPUT
+          )
           PY
 
       - name: Validate generated files
