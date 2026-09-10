@@ -43,6 +43,10 @@ jobs:
             "https://iptv-org.github.io/iptv/cities/usbos.m3u" \
             -o boston.m3u
 
+          curl -L --fail \
+            "https://iptv-org.github.io/iptv/cities/usbuf.m3u" \
+            -o buffalo.m3u
+
           python <<'PY'
           import re
           import urllib.request
@@ -64,16 +68,11 @@ jobs:
               ("TheCW.us@SD", "Broadcast", "The CW",
                "https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"),
 
-              # FROZEN - already working
               ("PBS.us@KQED", "Broadcast", "PBS",
                "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"),
 
-              # FROZEN - already working
               ("CNN.us@East", "News", "CNN",
                "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"),
-
-              ("FoxNewsChannel.us@SD", "News", "Fox News",
-               "http://45.190.28.50/FOX_NEWS/index.m3u8"),
 
               ("CNBC.us@East", "News", "CNBC",
                "http://fl2.moveonjoy.com/CNBC/index.m3u8"),
@@ -102,41 +101,33 @@ jobs:
               ("ParamountNetwork.us@East", "Entertainment", "Paramount Network",
                "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"),
 
-              # FROZEN - already working
               ("SYFY.us@East", "Entertainment", "Syfy",
                "http://23.237.104.106:8080/USA_SYFY/index.m3u8"),
 
-              # TEST ALTERNATIVES
               ("Bravo.us@East", "Entertainment", "Bravo",
                "https://fl1.moveonjoy.com/BRAVO/index.m3u8"),
 
-              # FROZEN - already working
               ("E.us@East", "Entertainment", "E!",
                "http://23.237.104.106:8080/USA_E/index.m3u8"),
 
               ("Freeform.us@East", "Entertainment", "Freeform",
                "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"),
 
-              # FROZEN - already working
               ("DisneyChannel.us@East", "Kids", "Disney Channel",
                "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"),
 
-              # FROZEN - already working
               ("Nickelodeon.us@East", "Kids", "Nickelodeon",
                "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"),
 
-              # FROZEN - already working
               ("CartoonNetwork.us@East", "Kids", "Cartoon Network",
                "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"),
 
-              # TEST ALTERNATIVES
               ("ComedyCentral.us@East", "Comedy", "Comedy Central",
                "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"),
 
               ("TCM.us@East", "Movies", "TCM",
                "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"),
 
-              # FROZEN - already working
               ("HallmarkChannel.us@East", "Movies", "Hallmark Channel",
                "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"),
 
@@ -146,7 +137,6 @@ jobs:
               ("HGTV.us@East", "Lifestyle", "HGTV",
                "http://212.102.60.231/HGTV/index.m3u8"),
 
-              # FROZEN - already working
               ("GameShowNetwork.us@East", "Entertainment", "Game Show Network",
                "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"),
           ]
@@ -156,10 +146,8 @@ jobs:
               "CNN.us@East",
               "SYFY.us@East",
               "E.us@East",
-              "DisneyChannel.us@East",
               "Nickelodeon.us@East",
               "CartoonNetwork.us@East",
-              "HallmarkChannel.us@East",
               "GameShowNetwork.us@East",
           }
 
@@ -173,26 +161,19 @@ jobs:
               "CBS.us@East": [
                   "http://143.244.60.30/CBSEAST/index.m3u8",
                   "https://fl1.moveonjoy.com/CBS_EAST/index.m3u8",
+                  "https://fl1.moveonjoy.com/CBS/index.m3u8",
               ],
 
               "NBC.us@East": [
+                  "http://170.254.17.2:80/NBC/index.m3u8",
                   "https://fl61.moveonjoy.com/NY_New_York_NBC/mpegts",
                   "http://143.244.60.30/NBC_EAST/index.m3u8",
                   "https://fl1.moveonjoy.com/NBC_EAST/index.m3u8",
               ],
 
-              "Fox.us@East": [
-                  "http://143.244.60.30/FOX_EAST/index.m3u8",
-                  "https://fl1.moveonjoy.com/FOX_EAST/index.m3u8",
-              ],
-
               "TheCW.us@SD": [
                   "https://dvrfl04.tulix.tv/teleup-wpix/mpegts",
-              ],
-
-              "FoxNewsChannel.us@SD": [
-                  "http://138.121.15.230:9002/FOX-NEWS/index.m3u8",
-                  "http://247preview.foxnews.com/hls/live/2020027/fncv3preview/primary.m3u8",
+                  "https://fl1.moveonjoy.com/CW/index.m3u8",
               ],
 
               "CNBC.us@East": [
@@ -203,10 +184,12 @@ jobs:
               "ESPN.us": [
                   "https://dvrfl04.tulix.tv/teleup-espn/mpegts",
                   "http://84.17.50.102/espn/index.m3u8",
+                  "http://23.237.104.106:8080/USA_ESPN1/index.m3u8",
               ],
 
               "ESPN2.us": [
                   "https://dvrfl04.tulix.tv/teleup-espn2/mpegts",
+                  "http://23.237.104.106:8080/USA_ESPN2/index.m3u8",
               ],
 
               "USA.us@East": [
@@ -239,14 +222,6 @@ jobs:
                   "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
               ],
 
-              "Bravo.us@East": [
-                  "https://fl1.moveonjoy.com/BRAVO/index.m3u8",
-                  "http://fl1.moveonjoy.com/BRAVO/index.m3u8",
-                  "https://fl3.moveonjoy.com/BRAVO/index.m3u8",
-                  "http://41.205.93.154/BRAVO/index.m3u8",
-                  "http://fl2.moveonjoy.com/BRAVO/index.m3u8",
-              ],
-
               "ComedyCentral.us@East": [
                   "http://170.254.18.106/COMEDY_CENTRAL/index.m3u8",
                   "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8",
@@ -257,6 +232,11 @@ jobs:
                   "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
               ],
 
+              "HallmarkChannel.us@East": [
+                  "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8",
+                  "https://fl1.moveonjoy.com/HALLMARK/index.m3u8",
+              ],
+
               "AMC.us@East": [
                   "http://190.11.225.124:5000/live/amc_hd/playlist.m3u8",
                   "http://23.239.31.26:8989/amc/index.m3u8",
@@ -264,21 +244,15 @@ jobs:
               ],
 
               "HGTV.us@East": [
-                  "http://212.102.60.231/HGTV/index.m3u8",
                   "http://23.237.104.106:8080/USA_HGTV/index.m3u8",
                   "http://fl2.moveonjoy.com/HGTV/index.m3u8",
+                  "http://212.102.60.231/HGTV/index.m3u8",
               ],
 
-              "Freeform.us@East": [
-                  "http://23.237.104.106:8080/USA_FREEFORM/index.m3u8",
-                  "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
-              ],
-          }
-
-          id_aliases = {
-              "USA.us@East": [
-                  "USA.us@East",
-                  "USANetwork.us@East",
+              "DisneyChannel.us@East": [
+                  "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8",
+                  "http://23.237.104.106:8080/USA_DISNEY_CHANNEL/index.m3u8",
+                  "http://23.237.104.106:8080/USA_DISNEY/index.m3u8",
               ],
           }
 
@@ -326,8 +300,9 @@ jobs:
           current_entries = parse_m3u("current-us.m3u")
           ny_entries = parse_m3u("new-york.m3u")
           boston_entries = parse_m3u("boston.m3u")
+          buffalo_entries = parse_m3u("buffalo.m3u")
 
-          def local_matches(entries, channel_name):
+          def local_matches(entries, channel_name, buffalo=False):
               result = []
               wanted = channel_name.lower()
 
@@ -349,7 +324,10 @@ jobs:
                           result.append(entry["url"])
 
                   elif wanted == "fox":
-                      if "fox" in text:
+                      if (
+                          "fox" in text
+                          or "wutv" in text
+                      ):
                           result.append(entry["url"])
 
                   elif wanted == "the cw":
@@ -382,9 +360,7 @@ jobs:
                       timeout=10
                   ) as response:
 
-                      status = response.status
-
-                      if status < 200 or status >= 400:
+                      if response.status < 200 or response.status >= 400:
                           return False
 
                       content_type = (
@@ -457,14 +433,30 @@ jobs:
                       )
                   )
 
-              ids = id_aliases.get(
-                  tvg_id,
-                  [tvg_id]
-              )
+              if name == "FOX":
+                  found = (
+                      local_matches(
+                          buffalo_entries,
+                          "FOX",
+                          buffalo=True
+                      )
+                      + found
+                  )
 
               for entry in current_entries:
-                  if entry["id"] in ids:
-                      found.append(entry["url"])
+                  text = (
+                      entry["id"] + " " + entry["name"]
+                  ).lower()
+
+                  if name == "FOX":
+                      if (
+                          "fox" in text
+                          and "news" not in text
+                      ):
+                          found.append(entry["url"])
+                  else:
+                      if entry["id"] == tvg_id:
+                          found.append(entry["url"])
 
               found.append(fallback)
 
@@ -545,15 +537,12 @@ jobs:
 
               if tvg_id in FROZEN:
                   print(f"FROZEN:   {name}")
-                  print(f"          {url}")
-
               elif url == fallback:
                   print(f"FALLBACK: {name}")
-                  print(f"          {url}")
-
               else:
                   print(f"REPLACED: {name}")
-                  print(f"          {url}")
+
+              print(f"          {url}")
 
           print()
           print(
@@ -589,7 +578,6 @@ jobs:
               "TheCW.us@SD": ["THE CW", "CW"],
               "PBS.us@KQED": ["PBS"],
               "CNN.us@East": ["CNN"],
-              "FoxNewsChannel.us@SD": ["FOX NEWS", "FOX NEWS CHANNEL"],
               "CNBC.us@East": ["CNBC"],
               "ESPN.us": ["ESPN"],
               "ESPN2.us": ["ESPN2", "ESPN 2"],
@@ -618,16 +606,8 @@ jobs:
               value = value or ""
               value = value.upper()
               value = value.replace("&AMP;", "AND")
-              value = re.sub(
-                  r"[^A-Z0-9!]+",
-                  " ",
-                  value
-              )
-              return re.sub(
-                  r"\s+",
-                  " ",
-                  value
-              ).strip()
+              value = re.sub(r"[^A-Z0-9!]+", " ", value)
+              return re.sub(r"\s+", " ", value).strip()
 
           def get_names(channel):
               return [
@@ -637,15 +617,9 @@ jobs:
               ]
 
           def score_candidate(candidate, aliases):
-              channel_id = normalize(
-                  candidate["id"]
-              )
-
+              channel_id = normalize(candidate["id"])
               names = candidate["names"]
-
-              combined = " ".join(
-                  [channel_id] + names
-              )
+              combined = " ".join([channel_id] + names)
 
               forbidden = [
                   "PACIFIC",
@@ -668,24 +642,15 @@ jobs:
                   for alias in aliases:
 
                       if name == alias:
-                          score = max(
-                              score,
-                              1000
-                          )
+                          score = max(score, 1000)
 
                       elif name.startswith(
                           alias + " "
                       ):
-                          score = max(
-                              score,
-                              800
-                          )
+                          score = max(score, 800)
 
                       elif alias in name:
-                          score = max(
-                              score,
-                              500
-                          )
+                          score = max(score, 500)
 
               if score == 0:
                   return 0
@@ -722,13 +687,8 @@ jobs:
 
               source_channels.append({
                   "element": channel,
-                  "id": channel.get(
-                      "id",
-                      ""
-                  ),
-                  "names": get_names(
-                      channel
-                  ),
+                  "id": channel.get("id", ""),
+                  "names": get_names(channel),
               })
 
           selected = {}
@@ -774,7 +734,7 @@ jobs:
               else:
 
                   print(
-                      f"SKIP:  {target_id} "
+                      f"SKIP: {target_id} "
                       f"(no suitable EPG channel)"
                   )
 
@@ -783,12 +743,10 @@ jobs:
               "Requested channels:",
               len(channels)
           )
-
           print(
               "Matched EPG channels:",
               len(selected)
           )
-
           print()
 
           if not selected:
