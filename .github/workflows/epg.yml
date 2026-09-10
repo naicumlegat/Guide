@@ -285,6 +285,7 @@ jobs:
                       "HGTV East",
                       "http://212.102.60.231/HGTV/index.m3u8"
                   ),
+              ],
           }
 
           CHANNELS = [
