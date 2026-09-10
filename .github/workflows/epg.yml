@@ -399,8 +399,6 @@ jobs:
               .replace(/\s+/g, " ");
 
           dataset.channels = dataset.channels.filter((channel) => {
-            if (channel.country !== "US") return false;
-
             const names = [
               channel.name,
               ...channel.alt_names,
@@ -638,8 +636,6 @@ jobs:
               .replace(/\s+/g, " ");
 
           dataset.channels = dataset.channels.filter((channel) => {
-            if (channel.country !== "US") return false;
-
             const names = [
               channel.name,
               ...channel.alt_names,
@@ -764,9 +760,16 @@ jobs:
 
   sync:
     name: Sync and Deploy
+    needs:
+      - epg
+      - discovery
+      - health-merge
     if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event.schedule == '15 0,6,12,18 * * *'
+      always() &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        github.event.schedule == '15 0,6,12,18 * * *'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -942,8 +945,6 @@ jobs:
               .replace(/\s+/g, " ");
 
           dataset.channels = dataset.channels.filter((channel) => {
-            if (channel.country !== "US") return false;
-
             const names = [
               channel.name,
               ...channel.alt_names,
