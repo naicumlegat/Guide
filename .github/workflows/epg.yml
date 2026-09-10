@@ -394,8 +394,16 @@ jobs:
               "Accept": "*/*",
           }
 
+          def extract_attr(extinf, attr):
+              m = re.search(
+                  rf'{re.escape(attr)}="([^"]*)"',
+                  extinf
+              )
+              return m.group(1) if m else ""
+
           def parse_m3u(path):
               entries = []
+
               lines = Path(path).read_text(
                   encoding="utf-8",
                   errors="ignore"
@@ -421,13 +429,16 @@ jobs:
               "new-york.m3u",
               "boston.m3u",
           ]:
-              sources.extend(parse_m3u(filename))
+              sources.extend(
+                  parse_m3u(filename)
+              )
 
           def fetch(url, timeout=15):
               req = urllib.request.Request(
                   url,
                   headers=HEADERS
               )
+
               return urllib.request.urlopen(
                   req,
                   timeout=timeout
@@ -436,9 +447,15 @@ jobs:
           def test_stream(url):
               try:
                   with fetch(url) as r:
-                      status = getattr(r, "status", 200)
+                      status = getattr(
+                          r,
+                          "status",
+                          200
+                      )
+
                       content_type = (
-                          r.headers.get("Content-Type") or ""
+                          r.headers.get("Content-Type")
+                          or ""
                       ).lower()
 
                       data = r.read(32768)
@@ -480,7 +497,11 @@ jobs:
                       if (
                           len(data) >= 1024
                           and not text.lstrip().lower().startswith(
-                              ("<html", "<!doctype", "<head")
+                              (
+                                  "<html",
+                                  "<!doctype",
+                                  "<head"
+                              )
                           )
                       ):
                           return True, (
@@ -494,10 +515,12 @@ jobs:
               except Exception as e:
                   return False, str(e)
 
-          Path("public").mkdir(exist_ok=True)
+          Path("public").mkdir(
+              exist_ok=True
+          )
 
           playlist_lines = [
-              "#EXTM3U",
+              "#EXTM3U"
           ]
 
           selected = {}
@@ -510,7 +533,9 @@ jobs:
               candidates = []
 
               if channel in FROZEN:
-                  candidates.append(FROZEN[channel])
+                  candidates.append(
+                      FROZEN[channel]
+                  )
 
               allowed_ids = REQUIRED_IDS.get(
                   channel,
@@ -533,7 +558,10 @@ jobs:
                       )
 
               candidates.extend(
-                  CANDIDATES.get(channel, [])
+                  CANDIDATES.get(
+                      channel,
+                      []
+                  )
               )
 
               forbidden_ids = FORBIDDEN.get(
@@ -593,6 +621,7 @@ jobs:
                   f'#EXTINF:-1 tvg-id="{tvg_id}" '
                   f'group-title="USA",{display_name}'
               )
+
               playlist_lines.append(url)
 
               print(
@@ -602,9 +631,11 @@ jobs:
                   f"          TEST: {reason}\n"
               )
 
-          Path("public/channels.m3u").write_text(
+          Path(
+              "public/channels.m3u"
+          ).write_text(
               "\n".join(playlist_lines) + "\n",
-              encoding="utf-8",
+              encoding="utf-8"
           )
 
           playlist_text = Path(
@@ -648,7 +679,9 @@ jobs:
               "merged_epg.xml.gz",
               "rb"
           ) as f:
-              epg_root = ET.fromstring(f.read())
+              epg_root = ET.fromstring(
+                  f.read()
+              )
 
           channels_by_id = {
               c.attrib.get("id"): c
@@ -657,8 +690,12 @@ jobs:
 
           programs_by_channel = {}
 
-          for programme in epg_root.findall("programme"):
-              channel_id = programme.attrib.get("channel")
+          for programme in epg_root.findall(
+              "programme"
+          ):
+              channel_id = programme.attrib.get(
+                  "channel"
+              )
 
               if channel_id:
                   programs_by_channel.setdefault(
@@ -707,26 +744,30 @@ jobs:
               if display is not None:
                   new_display = ET.SubElement(
                       new_channel,
-                      "display-name",
+                      "display-name"
                   )
                   new_display.text = display.text
 
               for programme in programs_by_channel.get(
                   source_channel.attrib.get("id"),
-                  [],
+                  []
               ):
                   new_programme = ET.fromstring(
                       ET.tostring(programme)
                   )
+
                   new_programme.set(
                       "channel",
-                      selected_id,
+                      selected_id
                   )
+
                   guide_root.append(
                       new_programme
                   )
 
-          tree = ET.ElementTree(guide_root)
+          tree = ET.ElementTree(
+              guide_root
+          )
 
           ET.indent(
               tree,
@@ -736,7 +777,7 @@ jobs:
           tree.write(
               "public/guide.xml",
               encoding="utf-8",
-              xml_declaration=True,
+              xml_declaration=True
           )
 
           print()
