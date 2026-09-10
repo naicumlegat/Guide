@@ -29,7 +29,7 @@ jobs:
           rm -rf public
           mkdir -p public
 
-      - name: Download public stream indexes
+      - name: Download public channel sources
         run: |
           curl -L --fail \
             "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us.m3u" \
@@ -50,732 +50,511 @@ jobs:
       - name: Build verified playlist
         run: |
           python <<'PY'
-          import concurrent.futures
           import re
-          import urllib.error
+          import sys
+          import time
+          import urllib.parse
           import urllib.request
 
-          # ============================================================
-          # ONLY THESE CHANNELS ARE ALLOWED TO CHANGE.
-          # Everything in FROZEN is preserved exactly as supplied.
-          # ============================================================
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0"
+          }
 
-          channels = [
-              ("ABC.us@East", "Broadcast", "ABC",
-               "https://fl1.moveonjoy.com/ABC_EAST/index.m3u8"),
+          # These channels were already working and must not be changed.
+          FROZEN = {
+              "PBS": (
+                  "PBS.us@KQED",
+                  "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"
+              ),
+              "CNN": (
+                  "CNN.us@East",
+                  "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"
+              ),
+              "Syfy": (
+                  "SYFY.us@East",
+                  "http://23.237.104.106:8080/USA_SYFY/index.m3u8"
+              ),
+              "Bravo": (
+                  "Bravo.us@East",
+                  "http://fl2.moveonjoy.com/BRAVO/index.m3u8"
+              ),
+              "E!": (
+                  "E.us@East",
+                  "http://23.237.104.106:8080/USA_E/index.m3u8"
+              ),
+              "Freeform": (
+                  "Freeform.us@East",
+                  "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"
+              ),
+              "Nickelodeon": (
+                  "Nickelodeon.us@East",
+                  "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"
+              ),
+              "Cartoon Network": (
+                  "CartoonNetwork.us@East",
+                  "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"
+              ),
+              "Game Show Network": (
+                  "GameShowNetwork.us@SD",
+                  "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"
+              ),
+          }
 
-              ("CBS.us@East", "Broadcast", "CBS",
-               "http://stream.cammonitorplus.net/1783/index.m3u8"),
+          # Every non-frozen candidate has an explicit identity.
+          # The identity is checked BEFORE the URL is allowed to win.
+          CANDIDATES = {
+              "ABC": [
+                  (
+                      "WABCTV.us",
+                      "WABC-TV (ABC New York City)",
+                      "https://api.abcotvs.com/v3/wabc/m3u8/url?id=503123&key=yuemix"
+                  ),
+              ],
 
-              ("NBC.us@East", "Broadcast", "NBC",
-               "http://stream.cammonitorplus.net/1785/index.m3u8"),
+              "CBS": [
+                  (
+                      "CBS.us@East",
+                      "CBS East",
+                      "http://stream.cammonitorplus.net/1783/index.m3u8"
+                  ),
+                  (
+                      "CBS.us@East",
+                      "CBS East",
+                      "http://190.11.225.124:5000/live/cbs_hd/playlist.m3u8"
+                  ),
+                  (
+                      "CBS.us@East",
+                      "CBS East",
+                      "http://tvsen7.aynascope.net/cbs/index.m3u8"
+                  ),
+              ],
 
-              ("Fox.us@East", "Broadcast", "FOX",
-               "http://stream.cammonitorplus.net/1752/index.m3u8"),
+              "NBC": [
+                  (
+                      "NBC.us@East",
+                      "NBC East",
+                      "http://stream.cammonitorplus.net/1785/index.m3u8"
+                  ),
+                  (
+                      "NBC.us@East",
+                      "NBC East",
+                      "http://190.11.225.124:5000/live/nbc_hd/playlist.m3u8"
+                  ),
+                  (
+                      "NBC.us@East",
+                      "NBC East",
+                      "http://170.254.17.2/NBC/index.m3u8"
+                  ),
+              ],
 
-              ("TheCW.us@SD", "Broadcast", "The CW",
-               "https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"),
+              # Actual FOX network affiliate.
+              # WUTV is FOX Buffalo, not Fox News/Fox Deportes/Fox Business.
+              "FOX": [
+                  (
+                      "WUTV.us",
+                      "WUTV (FOX Buffalo)",
+                      "https://www.foxsports.com/live/wutv"
+                  ),
+                  (
+                      "WUTV.us",
+                      "WUTV (FOX Buffalo)",
+                      "http://stream.cammonitorplus.net/1799/index.m3u8"
+                  ),
+              ],
 
-              # FROZEN
-              ("PBS.us@KQED", "Broadcast", "PBS",
-               "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"),
+              "The CW": [
+                  (
+                      "TheCW.us@East",
+                      "The CW East",
+                      "http://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"
+                  ),
+              ],
 
-              # FROZEN
-              ("CNN.us@East", "News", "CNN",
-               "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"),
+              "CNBC": [
+                  (
+                      "CNBC.us@East",
+                      "CNBC East",
+                      "http://41.205.93.154/CNBC/index.m3u8"
+                  ),
+                  (
+                      "CNBC.us@East",
+                      "CNBC East",
+                      "http://143.244.60.30/CNBC/index.m3u8"
+                  ),
+                  (
+                      "CNBC.us@East",
+                      "CNBC East",
+                      "https://stream.livenewsplay.com:9443/hls/cnbc/cnbcsd.m3u8"
+                  ),
+                  (
+                      "CNBC.us@East",
+                      "CNBC East",
+                      "http://fl2.moveonjoy.com/CNBC/index.m3u8"
+                  ),
+              ],
 
-              ("CNBC.us@East", "News", "CNBC",
-               "http://fl2.moveonjoy.com/CNBC/index.m3u8"),
+              "ESPN": [
+                  (
+                      "ESPN.us",
+                      "ESPN",
+                      "http://fl1.moveonjoy.com/ESPN/index.m3u8"
+                  ),
+              ],
 
-              ("ESPN.us", "Sports", "ESPN",
-               "http://fl1.moveonjoy.com/ESPN/index.m3u8"),
+              "ESPN2": [
+                  (
+                      "ESPN2.us",
+                      "ESPN2",
+                      "http://fl2.moveonjoy.com/ESPN_2/index.m3u8"
+                  ),
+              ],
 
-              ("ESPN2.us", "Sports", "ESPN2",
-               "http://fl2.moveonjoy.com/ESPN_2/index.m3u8"),
+              "TNT": [
+                  (
+                      "TNT.us@East",
+                      "TNT East",
+                      "http://170.254.18.106/TNT/index.m3u8"
+                  ),
+              ],
 
-              ("USA.us@East", "Entertainment", "USA Network",
-               "http://fl1.moveonjoy.com/USA_NETWORK/index.m3u8"),
+              "TBS": [
+                  (
+                      "TBS.us@East",
+                      "TBS East",
+                      "http://143.244.60.30/TBS/index.m3u8"
+                  ),
+              ],
 
-              ("TNT.us@East", "Entertainment", "TNT",
-               "http://170.254.18.106/TNT/index.m3u8"),
+              "FXX": [
+                  (
+                      "FXX.us@East",
+                      "FXX East",
+                      "http://23.237.104.106:8080/USA_FXX/index.m3u8"
+                  ),
+              ],
 
-              ("TBS.us@East", "Entertainment", "TBS",
-               "http://143.244.60.30/TBS/index.m3u8"),
+              "Paramount Network": [
+                  (
+                      "ParamountNetwork.us@East",
+                      "Paramount Network East",
+                      "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"
+                  ),
+              ],
 
-              # FROZEN
-              ("FX.us@East", "Entertainment", "FX",
-               "http://23.237.104.106:8080/USA_FX/index.m3u8"),
+              "Disney Channel": [
+                  (
+                      "DisneyChannel.us@East",
+                      "Disney Channel East",
+                      "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"
+                  ),
+              ],
 
-              ("FXX.us@East", "Entertainment", "FXX",
-               "http://23.237.104.106:8080/USA_FXX/index.m3u8"),
+              "Comedy Central": [
+                  (
+                      "ComedyCentral.us@East",
+                      "Comedy Central East",
+                      "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"
+                  ),
+              ],
 
-              ("ParamountNetwork.us@East", "Entertainment", "Paramount Network",
-               "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"),
+              "TCM": [
+                  (
+                      "TCM.us@East",
+                      "TCM East",
+                      "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"
+                  ),
+              ],
 
-              # FROZEN
-              ("SYFY.us@East", "Entertainment", "Syfy",
-               "http://23.237.104.106:8080/USA_SYFY/index.m3u8"),
+              "Hallmark Channel": [
+                  (
+                      "HallmarkChannel.us@East",
+                      "Hallmark Channel East",
+                      "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"
+                  ),
+                  (
+                      "HallmarkChannel.us@East",
+                      "Hallmark Channel East",
+                      "http://40.160.24.53/HALLMARK/index.m3u8"
+                  ),
+              ],
 
-              # FROZEN
-              ("Bravo.us@East", "Entertainment", "Bravo",
-               "http://fl2.moveonjoy.com/BRAVO/index.m3u8"),
+              "AMC": [
+                  (
+                      "AMC.us@East",
+                      "AMC East",
+                      "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8"
+                  ),
+              ],
 
-              # FROZEN
-              ("E.us@East", "Entertainment", "E!",
-               "http://23.237.104.106:8080/USA_E/index.m3u8"),
+              "HGTV": [
+                  (
+                      "HGTV.us@East",
+                      "HGTV East",
+                      "http://212.102.60.231/HGTV/index.m3u8"
+                  ),
+              ],
+          }
 
-              # FROZEN
-              ("Freeform.us@East", "Entertainment", "Freeform",
-               "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"),
-
-              # This was the one that actually became fixed.
-              ("DisneyChannel.us@East", "Kids", "Disney Channel",
-               "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"),
-
-              # FROZEN
-              ("Nickelodeon.us@East", "Kids", "Nickelodeon",
-               "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"),
-
-              # FROZEN
-              ("CartoonNetwork.us@East", "Kids", "Cartoon Network",
-               "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"),
-
-              ("ComedyCentral.us@East", "Comedy", "Comedy Central",
-               "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"),
-
-              ("TCM.us@East", "Movies", "TCM",
-               "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"),
-
-              ("HallmarkChannel.us@East", "Movies", "Hallmark Channel",
-               "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"),
-
-              ("AMC.us@East", "Movies", "AMC",
-               "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8"),
-
-              ("HGTV.us@East", "Lifestyle", "HGTV",
-               "http://212.102.60.231/HGTV/index.m3u8"),
-
-              # FROZEN
-              ("GameShowNetwork.us@East", "Entertainment", "Game Show Network",
-               "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"),
+          CHANNELS = [
+              ("ABC", "ABC", "Broadcast"),
+              ("CBS", "CBS", "Broadcast"),
+              ("NBC", "NBC", "Broadcast"),
+              ("FOX", "FOX", "Broadcast"),
+              ("The CW", "The CW", "Broadcast"),
+              ("PBS", "PBS", "Broadcast"),
+              ("CNN", "CNN", "News"),
+              ("CNBC", "CNBC", "News"),
+              ("ESPN", "ESPN", "Sports"),
+              ("ESPN2", "ESPN2", "Sports"),
+              ("USA Network", "USA", "Entertainment"),
+              ("TNT", "TNT", "Entertainment"),
+              ("TBS", "TBS", "Entertainment"),
+              ("FX", "FX", "Entertainment"),
+              ("FXX", "FXX", "Entertainment"),
+              ("Paramount Network", "Paramount Network", "Entertainment"),
+              ("Syfy", "Syfy", "Entertainment"),
+              ("Bravo", "Bravo", "Entertainment"),
+              ("E!", "E!", "Entertainment"),
+              ("Freeform", "Freeform", "Entertainment"),
+              ("Disney Channel", "Disney Channel", "Kids"),
+              ("Nickelodeon", "Nickelodeon", "Kids"),
+              ("Cartoon Network", "Cartoon Network", "Kids"),
+              ("Comedy Central", "Comedy Central", "Comedy"),
+              ("TCM", "TCM", "Movies"),
+              ("Hallmark Channel", "Hallmark Channel", "Movies"),
+              ("AMC", "AMC", "Movies"),
+              ("HGTV", "HGTV", "Lifestyle"),
+              ("Game Show Network", "Game Show Network", "Entertainment"),
           ]
 
-          FROZEN = {
-              "PBS.us@KQED",
-              "CNN.us@East",
-              "FX.us@East",
-              "SYFY.us@East",
-              "Bravo.us@East",
-              "E.us@East",
-              "Freeform.us@East",
-              "Nickelodeon.us@East",
-              "CartoonNetwork.us@East",
-              "GameShowNetwork.us@East",
+          # Exact identity requirements.
+          # No substring matching such as "fox" or "cw".
+          REQUIRED_IDS = {
+              "ABC": {"WABCTV.us", "ABC.us@East"},
+              "CBS": {"CBS.us@East"},
+              "NBC": {"NBC.us@East"},
+              "FOX": {"WUTV.us", "WNYW.us", "WFXT.us"},
+              "The CW": {"TheCW.us@East", "TheCW.us@WPIX"},
+              "CNBC": {"CNBC.us@East"},
+              "ESPN": {"ESPN.us"},
+              "ESPN2": {"ESPN2.us"},
+              "TNT": {"TNT.us@East"},
+              "TBS": {"TBS.us@East"},
+              "FXX": {"FXX.us@East"},
+              "Paramount Network": {"ParamountNetwork.us@East"},
+              "Disney Channel": {"DisneyChannel.us@East"},
+              "Comedy Central": {"ComedyCentral.us@East"},
+              "TCM": {"TCM.us@East"},
+              "Hallmark Channel": {"HallmarkChannel.us@East"},
+              "AMC": {"AMC.us@East"},
+              "HGTV": {"HGTV.us@East"},
           }
 
-          # ============================================================
-          # PUBLIC CANDIDATES
-          #
-          # These are gathered from the public IPTV-org indexes.
-          # The validator below decides whether they are usable.
-          # ============================================================
-
-          alternatives = {
-              "ABC.us@East": [
-                  # New York ABC affiliate candidates.
-                  "https://fl1.moveonjoy.com/NY_NEW_YORK_ABC/index.m3u8",
-                  "https://fl61.moveonjoy.com/NY_New_York_ABC/index.m3u8",
-                  "http://143.244.60.30/ABC_EAST/index.m3u8",
-                  "https://fl1.moveonjoy.com/ABC_EAST/index.m3u8",
-              ],
-
-              "CBS.us@East": [
-                  "http://190.11.225.124:5000/live/cbs_hd/playlist.m3u8",
-                  "http://tvsen7.aynascope.net/cbs/index.m3u8",
-                  "http://143.244.60.30/CBSEAST/index.m3u8",
-                  "https://fl1.moveonjoy.com/CBS_EAST/index.m3u8",
-              ],
-
-              "NBC.us@East": [
-                  "http://190.11.225.124:5000/live/nbc_hd/playlist.m3u8",
-                  "http://170.254.17.2/NBC/index.m3u8",
-                  "https://fl61.moveonjoy.com/NY_New_York_NBC/mpegts",
-                  "http://143.244.60.30/NBC_EAST/index.m3u8",
-              ],
-
-              "Fox.us@East": [
-                  # Actual FOX affiliates, not Fox News.
-                  "https://cdn-uw2-prod.tsv2.amagi.tv/linear/amg00488-foxdigital-fox4dallaskdfw-vizious/playlist.m3u8",
-                  "http://143.244.60.30/FOX_EAST/index.m3u8",
-                  "https://fl1.moveonjoy.com/FOX_EAST/index.m3u8",
-              ],
-
-              "TheCW.us@SD": [
-                  "https://dvrfl04.tulix.tv/teleup-wpix/mpegts",
-                  "https://fl1.moveonjoy.com/CW/index.m3u8",
-              ],
-
-              "CNBC.us@East": [
-                  "http://143.244.60.30/CNBC/index.m3u8",
-                  "https://stream.livenewsplay.com:9443/hls/cnbc/cnbcsd.m3u8",
-              ],
-
-              "ESPN.us": [
-                  "http://23.237.104.106:8080/USA_ESPN1/index.m3u8",
-                  "https://dvrfl04.tulix.tv/teleup-espn/mpegts",
-                  "http://84.17.50.102/espn/index.m3u8",
-              ],
-
-              "ESPN2.us": [
-                  "http://23.237.104.106:8080/USA_ESPN2/index.m3u8",
-                  "https://dvrfl04.tulix.tv/teleup-espn2/mpegts",
-              ],
-
-              "USA.us@East": [
-                  "http://40.160.24.55/USA_NETWORK/index.m3u8",
-                  "https://tvsen3.aynaott.com/dbbcY6NG/index.m3u8",
-              ],
-
-              "TNT.us@East": [
-                  "http://143.244.60.30/TNT/index.m3u8",
-                  "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855455&extension=ts",
-              ],
-
-              "TBS.us@East": [
-                  "http://143.244.60.30/TBS/index.m3u8",
-                  "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855462&extension=ts",
-              ],
-
-              "FXX.us@East": [
-                  # Current public iptv-org entry.
-                  "http://23.237.104.106:8080/USA_FXX/index.m3u8",
-                  # Previously reported alternative.
-                  "http://livex.pop-app.live/s4n/poplive/ch523/playlist.m3u8",
-                  "http://fl2.moveonjoy.com/FXX/index.m3u8",
-              ],
-
-              "ParamountNetwork.us@East": [
-                  "http://170.254.18.106/PARAMOUNT/index.m3u8",
-                  "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
-              ],
-
-              "ComedyCentral.us@East": [
-                  "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8",
-                  "http://170.254.18.106/COMEDY_CENTRAL/index.m3u8",
-              ],
-
-              "TCM.us@East": [
-                  "http://143.244.60.30/TCM/index.m3u8",
-                  "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
-              ],
-
-              "HallmarkChannel.us@East": [
-                  # Explicit Hallmark Channel sources only.
-                  "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8",
-                  "http://40.160.24.53/HALLMARK/index.m3u8",
-              ],
-
-              "AMC.us@East": [
-                  "http://190.11.225.124:5000/live/amc_hd/playlist.m3u8",
-                  "http://23.239.31.26:8989/amc/index.m3u8",
-                  "https://fl5.moveonjoy.com/AMC_NETWORK/index.m3u8",
-              ],
-
-              "HGTV.us@East": [
-                  "http://23.237.104.106:8080/USA_HGTV/index.m3u8",
-                  "http://fl2.moveonjoy.com/HGTV/index.m3u8",
-                  "http://212.102.60.231/HGTV/index.m3u8",
-              ],
-
-              "DisneyChannel.us@East": [
-                  "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8",
-                  "http://23.237.104.106:8080/USA_DISNEY_CHANNEL/index.m3u8",
-                  "http://23.237.104.106:8080/USA_DISNEY/index.m3u8",
-              ],
+          # Explicitly forbidden identities.
+          FORBIDDEN = {
+              "FOX": {
+                  "FoxNewsChannel.us@SD",
+                  "FoxBusiness.us@East",
+                  "FoxWeather.us@East",
+                  "FoxSports.us@SD",
+                  "FoxDeportes.us@SD",
+              },
+              "ABC": {
+                  "ABCNews.us@East",
+                  "ABCNewsLive.us@SD",
+              },
+              "The CW": {
+                  "NationalGeographicWild.us@East",
+                  "NationalGeographicWild.us@HDEast",
+                  "NationalGeographic.us@East",
+              },
+              "Hallmark Channel": {
+                  "HallmarkFamily.us@East",
+                  "HallmarkMystery.us@East",
+                  "HallmarkMoviesMysteries.us@East",
+              },
           }
 
-          def parse_m3u(path):
-              entries = []
+          def fetch(url, timeout=15):
+              req = urllib.request.Request(url, headers=HEADERS)
+              return urllib.request.urlopen(req, timeout=timeout)
 
-              lines = open(
-                  path,
-                  encoding="utf-8",
-                  errors="ignore"
-              ).read().splitlines()
+          def test_stream(url):
+              """
+              Verify that the endpoint actually returns something stream-like.
+              This does NOT decide channel identity; identity is supplied by the
+              explicit candidate metadata above.
+              """
+              try:
+                  with fetch(url) as r:
+                      status = getattr(r, "status", 200)
+                      content_type = (r.headers.get("Content-Type") or "").lower()
+                      data = r.read(32768)
+
+                      if status < 200 or status >= 400:
+                          return False, f"HTTP {status}"
+
+                      if not data:
+                          return False, "empty response"
+
+                      text = data.decode("utf-8", errors="ignore")
+
+                      # HLS playlist
+                      if b"#EXTM3U" in data:
+                          if "#EXTINF:" in text or "#EXT-X-STREAM-INF:" in text:
+                              return True, f"HLS {status} {content_type}"
+
+                          return False, "HLS playlist has no media entries"
+
+                      # Transport stream / binary media
+                      if (
+                          "video" in content_type
+                          or "mpeg" in content_type
+                          or "octet-stream" in content_type
+                          or url.lower().endswith(".ts")
+                      ):
+                          return True, f"media {status} {content_type}"
+
+                      # Some public HLS servers send generic content types.
+                      if len(data) >= 1024 and not text.lstrip().lower().startswith(
+                          ("<html", "<!doctype", "<head")
+                      ):
+                          return True, f"binary {status} {content_type}"
+
+                      return False, f"not a stream ({content_type})"
+
+              except Exception as e:
+                  return False, str(e)
+
+          def identity_allowed(channel, stream_id):
+              if stream_id in FORBIDDEN.get(channel, set()):
+                  return False
+
+              allowed = REQUIRED_IDS.get(channel)
+              if allowed is not None and stream_id not in allowed:
+                  return False
+
+              return True
+
+          def find_in_m3u(path, channel):
+              """
+              Search the public IPTV-org playlist, but only accept an entry
+              whose tvg-id exactly matches the required identity.
+              """
+              results = []
+
+              with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                  lines = [x.rstrip("\n") for x in f]
 
               for i, line in enumerate(lines):
-
                   if not line.startswith("#EXTINF"):
                       continue
 
-                  if i + 1 >= len(lines):
+                  m_id = re.search(r'tvg-id="([^"]*)"', line)
+                  m_name = re.search(r',(.+)$', line)
+
+                  if not m_id or i + 1 >= len(lines):
+                      continue
+
+                  stream_id = m_id.group(1)
+                  name = m_name.group(1).strip() if m_name else ""
+
+                  if not identity_allowed(channel, stream_id):
                       continue
 
                   url = lines[i + 1].strip()
 
-                  if not url.startswith(
-                      ("http://", "https://")
-                  ):
+                  if not url.startswith(("http://", "https://")):
                       continue
 
-                  tvg = re.search(
-                      r'tvg-id="([^"]*)"',
-                      line
-                  )
+                  results.append((stream_id, name, url))
 
-                  name = re.search(
-                      r',(.+)$',
-                      line
-                  )
+              return results
 
-                  entries.append({
-                      "id": tvg.group(1) if tvg else "",
-                      "name": name.group(1).strip() if name else "",
-                      "url": url,
-                      "raw": line,
-                  })
+          verified = {}
 
-              return entries
+          print("")
+          print("=" * 60)
+          print("STRICT VERIFIED STREAM SELECTION")
+          print("=" * 60)
 
-          current = parse_m3u("current-us.m3u")
-          ny = parse_m3u("new-york.m3u")
-          bos = parse_m3u("boston.m3u")
+          for channel, display_name, group in CHANNELS:
 
-          def is_hallmark_channel(text):
-              text = text.upper()
-
-              if "HALLMARK MYSTERY" in text:
-                  return False
-
-              if "HALLMARK FAMILY" in text:
-                  return False
-
-              if "HALLMARK MOVIES" in text:
-                  return False
-
-              return (
-                  "HALLMARK CHANNEL" in text
-                  or "USA_HALLMARK" in text
-                  or "/HALLMARK/" in text
-              )
-
-          def is_real_fox(text):
-              text = text.upper()
-
-              bad = [
-                  "FOX NEWS",
-                  "FOX NEWS LIVE",
-                  "FOX WEATHER",
-                  "FOX BUSINESS",
-                  "FOX SPORTS",
-                  "FOX SOUL",
-                  "FOX WEATHER",
-                  "LIVE NOW",
-              ]
-
-              if any(x in text for x in bad):
-                  return False
-
-              return (
-                  "FOX.US@" in text
-                  or "FOX" in text
-                  or "KDFW" in text
-                  or "WUTV" in text
-              )
-
-          def candidate_matches(channel, entry):
-              text = (
-                  entry["id"]
-                  + " "
-                  + entry["name"]
-                  + " "
-                  + entry["url"]
-              ).upper()
-
-              if channel == "ABC":
-
-                  if "ABC NEWS" in text:
-                      return False
-
-                  if "ABCNEWSLIVE" in text:
-                      return False
-
-                  return (
-                      "ABC.US@" in text
-                      or "WABC" in text
-                      or "ABC_EAST" in text
-                  )
-
-              if channel == "CBS":
-                  return "CBS" in text
-
-              if channel == "NBC":
-                  return (
-                      "NBC" in text
-                      and "NBC NEWS" not in text
-                  )
-
-              if channel == "FOX":
-                  return is_real_fox(text)
-
-              if channel == "The CW":
-                  return (
-                      "THE CW" in text
-                      or "CW" in text
-                      or "WPIX" in text
-                  )
-
-              if channel == "CNBC":
-                  return "CNBC" in text
-
-              if channel == "ESPN":
-                  return (
-                      "ESPN" in text
-                      and "ESPN2" not in text
-                      and "ESPNU" not in text
-                  )
-
-              if channel == "ESPN2":
-                  return (
-                      "ESPN2" in text
-                      or "ESPN 2" in text
-                  )
-
-              if channel == "USA Network":
-                  return (
-                      "USA NETWORK" in text
-                      or "USA_NETWORK" in text
-                  )
-
-              if channel == "TNT":
-                  return "TNT" in text
-
-              if channel == "TBS":
-                  return "TBS" in text
-
-              if channel == "FXX":
-                  return "FXX" in text
-
-              if channel == "Paramount Network":
-                  return (
-                      "PARAMOUNT NETWORK" in text
-                      or "PARAMOUNT_NETWORK" in text
-                      or "/PARAMOUNT/" in text
-                  )
-
-              if channel == "Comedy Central":
-                  return "COMEDY CENTRAL" in text
-
-              if channel == "TCM":
-                  return (
-                      "TCM" in text
-                      or "TURNER CLASSIC MOVIES" in text
-                  )
-
-              if channel == "Hallmark Channel":
-                  return is_hallmark_channel(text)
-
-              if channel == "AMC":
-                  return (
-                      "AMC" in text
-                      and "AMCHD" not in text
-                  )
-
-              if channel == "HGTV":
-                  return "HGTV" in text
-
-              if channel == "Disney Channel":
-                  return (
-                      "DISNEY CHANNEL" in text
-                      or "USA_DISNEY" in text
-                  )
-
-              return False
-
-          def collect_public_candidates(channel, name):
-
-              found = []
-
-              for entry in current:
-                  if candidate_matches(channel, entry):
-                      found.append(entry["url"])
-
-              if channel in {
-                  "ABC",
-                  "CBS",
-                  "NBC",
-                  "FOX",
-                  "The CW",
-              }:
-
-                  for entry in ny:
-                      if candidate_matches(channel, entry):
-                          found.append(entry["url"])
-
-                  for entry in bos:
-                      if candidate_matches(channel, entry):
-                          found.append(entry["url"])
-
-              found.extend(
-                  alternatives.get(
-                      next(
-                          (
-                              tvg_id
-                              for tvg_id, group, cname, fallback
-                              in channels
-                              if cname == name
-                          ),
-                          ""
-                      ),
-                      []
-                  )
-              )
-
-              return list(dict.fromkeys(found))
-
-          def fetch(url):
-
-              try:
-
-                  request = urllib.request.Request(
-                      url,
-                      headers={
-                          "User-Agent":
-                              "Mozilla/5.0 "
-                              "(Windows NT 10.0; Win64; x64) "
-                              "AppleWebKit/537.36 "
-                              "(KHTML, like Gecko) "
-                              "Chrome/149.0 Safari/537.36",
-                          "Accept": "*/*",
-                          "Connection": "close",
-                      }
-                  )
-
-                  with urllib.request.urlopen(
-                      request,
-                      timeout=12
-                  ) as response:
-
-                      if not (
-                          200
-                          <= response.status
-                          < 400
-                      ):
-                          return False
-
-                      content_type = (
-                          response.headers.get(
-                              "Content-Type",
-                              ""
-                          ).lower()
-                      )
-
-                      data = response.read(
-                          32768
-                      )
-
-                      text = data.decode(
-                          "utf-8",
-                          errors="ignore"
-                      )
-
-                      # Reject HTML/error pages.
-                      if "<html" in text.lower():
-                          return False
-
-                      if "<!doctype" in text.lower():
-                          return False
-
-                      # HLS master/media playlist.
-                      if (
-                          "#EXTM3U" in text
-                          and (
-                              "#EXT-X-" in text
-                              or ".m3u8" in text
-                              or ".ts" in text
-                              or "#EXTINF" in text
-                          )
-                      ):
-                          return True
-
-                      # MPEG/TS or other recognized media.
-                      if any(
-                          x in content_type
-                          for x in [
-                              "video/",
-                              "mpeg",
-                              "octet-stream",
-                              "application/vnd.apple.mpegurl",
-                              "application/x-mpegurl",
-                          ]
-                      ):
-                          return len(data) > 1024
-
-                      return False
-
-              except Exception:
-                  return False
-
-          # ============================================================
-          # Build candidate lists.
-          # ============================================================
-
-          candidates = {}
-
-          for (
-              tvg_id,
-              group,
-              name,
-              fallback
-          ) in channels:
-
-              if tvg_id in FROZEN:
-                  candidates[tvg_id] = [fallback]
+              if channel in FROZEN:
+                  stream_id, url = FROZEN[channel]
+                  verified[channel] = (stream_id, url)
+                  print(f"FROZEN: {channel}")
+                  print(f"        {url}")
                   continue
 
-              candidates[tvg_id] = list(
-                  dict.fromkeys(
-                      collect_public_candidates(
-                          name,
-                          name
-                      )
-                      + [fallback]
-                  )
-              )
+              candidates = []
 
-          # ============================================================
-          # Test everything concurrently.
-          # ============================================================
+              # First search IPTV-org sources using exact tvg-id identity.
+              for source in ("current-us.m3u", "new-york.m3u", "boston.m3u"):
+                  for item in find_in_m3u(source, channel):
+                      if item not in candidates:
+                          candidates.append(item)
 
-          results = {}
-
-          with concurrent.futures.ThreadPoolExecutor(
-              max_workers=24
-          ) as executor:
-
-              jobs = {}
-
-              for tvg_id, urls in candidates.items():
-
-                  if tvg_id in FROZEN:
+              # Then append only explicitly identified candidates.
+              for stream_id, identity_name, url in CANDIDATES.get(channel, []):
+                  if not identity_allowed(channel, stream_id):
                       continue
 
-                  for url in urls:
-                      jobs[
-                          (tvg_id, url)
-                      ] = executor.submit(
-                          fetch,
-                          url
-                      )
+                  item = (stream_id, identity_name, url)
+                  if item not in candidates:
+                      candidates.append(item)
 
-              for key, job in jobs.items():
+              found = None
 
-                  try:
-                      results[key] = job.result()
-                  except Exception:
-                      results[key] = False
+              for stream_id, identity_name, url in candidates:
+                  if not identity_allowed(channel, stream_id):
+                      print(f"REJECTED IDENTITY: {channel}")
+                      print(f"                 {stream_id}")
+                      continue
 
-          selected = {}
+                  ok, reason = test_stream(url)
 
-          print()
-          print("========================================")
-          print("VERIFIED STREAM SELECTION")
-          print("========================================")
-          print()
-
-          for (
-              tvg_id,
-              group,
-              name,
-              fallback
-          ) in channels:
-
-              if tvg_id in FROZEN:
-
-                  selected[tvg_id] = fallback
-
-                  print(
-                      f"FROZEN: {name}"
-                  )
-
-                  print(
-                      f"        {fallback}"
-                  )
-
-                  continue
-
-              chosen = None
-
-              for url in candidates[tvg_id]:
-
-                  if results.get(
-                      (tvg_id, url),
-                      False
-                  ):
-
-                      chosen = url
+                  if ok:
+                      found = (stream_id, url)
+                      print(f"VERIFIED: {channel}")
+                      print(f"          ID:  {stream_id}")
+                      print(f"          URL: {url}")
+                      print(f"          TEST: {reason}")
                       break
 
-              if chosen is None:
+                  print(f"FAILED: {channel}")
+                  print(f"        ID:  {stream_id}")
+                  print(f"        URL: {url}")
+                  print(f"        TEST: {reason}")
 
-                  print(
-                      f"FAILED: {name}"
+              if found is None:
+                  print("")
+                  print(f"ERROR: No verified stream found for {channel}")
+                  print("The workflow will NOT substitute an unrelated channel.")
+                  sys.exit(1)
+
+              verified[channel] = found
+
+          # Write final playlist.
+          with open("public/channels.m3u", "w", encoding="utf-8") as out:
+              out.write("#EXTM3U\n")
+
+              for channel, display_name, group in CHANNELS:
+                  stream_id, url = verified[channel]
+
+                  out.write(
+                      f'#EXTINF:-1 tvg-id="{stream_id}" '
+                      f'group-title="{group}",{display_name}\n'
                   )
+                  out.write(url + "\n")
 
-                  for url in candidates[tvg_id]:
-                      print(
-                          f"        tested: {url}"
-                      )
+          print("")
+          print("=" * 60)
+          print("FINAL PLAYLIST")
+          print("=" * 60)
 
-                  raise SystemExit(
-                      f"No verified stream found for {name}"
-                  )
-
-              selected[tvg_id] = chosen
-
-              print(
-                  f"VERIFIED: {name}"
-              )
-
-              print(
-                  f"          {chosen}"
-              )
-
-          # ============================================================
-          # Write playlist.
-          # ============================================================
-
-          with open(
-              "public/channels.m3u",
-              "w",
-              encoding="utf-8"
-          ) as f:
-
-              f.write("#EXTM3U\n")
-
-              for (
-                  tvg_id,
-                  group,
-                  name,
-                  fallback
-              ) in channels:
-
-                  f.write(
-                      f'#EXTINF:-1 '
-                      f'tvg-id="{tvg_id}" '
-                      f'group-title="{group}",'
-                      f'{name}\n'
-                  )
-
-                  f.write(
-                      selected[tvg_id] + "\n"
-                  )
-
-          print()
-          print(
-              "Playlist channels:",
-              len(channels)
-          )
+          with open("public/channels.m3u", "r", encoding="utf-8") as f:
+              print(f.read())
           PY
 
       - name: Download current US EPG
@@ -785,6 +564,7 @@ jobs:
             -o epg.xml.gz
 
           test -s epg.xml.gz
+          ls -lh epg.xml.gz
 
       - name: Build filtered EPG
         run: |
@@ -793,426 +573,164 @@ jobs:
           import re
           import xml.etree.ElementTree as ET
 
+          PLAYLIST = "public/channels.m3u"
           SOURCE = "epg.xml.gz"
           OUTPUT = "public/guide.xml"
 
-          channels = {
-              "ABC.us@East": [
-                  "ABC",
-                  "WABC",
-                  "WABC-TV",
-                  "ABC NEW YORK",
-              ],
-
-              "CBS.us@East": ["CBS"],
-
-              "NBC.us@East": [
-                  "NBC",
-                  "WNBC",
-                  "WNBC-TV",
-              ],
-
-              "Fox.us@East": [
-                  "FOX",
-                  "WUTV",
-                  "WNYW",
-                  "FOX NEW YORK",
-              ],
-
-              "TheCW.us@SD": [
-                  "THE CW",
-                  "CW",
-                  "WPIX",
-              ],
-
-              "PBS.us@KQED": ["PBS"],
-
-              "CNN.us@East": ["CNN"],
-
-              "CNBC.us@East": ["CNBC"],
-
-              "ESPN.us": ["ESPN"],
-
-              "ESPN2.us": [
-                  "ESPN2",
-                  "ESPN 2",
-              ],
-
-              "USA.us@East": [
-                  "USA NETWORK",
-                  "USA",
-              ],
-
-              "TNT.us@East": ["TNT"],
-
-              "TBS.us@East": ["TBS"],
-
-              "FX.us@East": ["FX"],
-
-              "FXX.us@East": ["FXX"],
-
-              "ParamountNetwork.us@East": [
-                  "PARAMOUNT NETWORK",
-                  "PARAMOUNT",
-              ],
-
-              "SYFY.us@East": ["SYFY"],
-
-              "Bravo.us@East": ["BRAVO"],
-
-              "E.us@East": ["E!"],
-
-              "Freeform.us@East": ["FREEFORM"],
-
-              "DisneyChannel.us@East": [
-                  "DISNEY CHANNEL",
-                  "DISNEY",
-              ],
-
-              "Nickelodeon.us@East": [
-                  "NICKELODEON"
-              ],
-
-              "CartoonNetwork.us@East": [
-                  "CARTOON NETWORK"
-              ],
-
-              "ComedyCentral.us@East": [
-                  "COMEDY CENTRAL"
-              ],
-
-              "TCM.us@East": [
-                  "TURNER CLASSIC MOVIES",
-                  "TCM",
-              ],
-
-              "HallmarkChannel.us@East": [
-                  "HALLMARK CHANNEL"
-              ],
-
-              "AMC.us@East": ["AMC"],
-
-              "HGTV.us@East": ["HGTV"],
-
-              "GameShowNetwork.us@East": [
-                  "GAME SHOW NETWORK",
-                  "GSN",
-              ],
-          }
-
-          def normalize(value):
-
-              value = value or ""
-              value = value.upper()
-              value = value.replace(
-                  "&AMP;",
-                  "AND"
-              )
-
-              value = re.sub(
-                  r"[^A-Z0-9!]+",
-                  " ",
-                  value
-              )
-
-              return re.sub(
-                  r"\s+",
-                  " ",
-                  value
-              ).strip()
-
-          def names(channel):
-
-              return [
-                  normalize(node.text)
-                  for node in channel.findall(
-                      "display-name"
-                  )
-                  if node.text
-              ]
-
-          def score(candidate, aliases):
-
-              cid = normalize(
-                  candidate.get(
-                      "id",
-                      ""
-                  )
-              )
-
-              display_names = names(
-                  candidate
-              )
-
-              combined = " ".join(
-                  [cid] + display_names
-              )
-
-              # Hard exclusions.
-
-              if any(
-                  x in combined
-                  for x in [
-                      "PACIFIC",
-                      "WESTERN",
-                      "WEST FEED",
-                      "MOUNTAIN",
-                      "CENTRAL",
-                      "MIDWEST",
-                  ]
-              ):
-                  return 0
-
-              # Hallmark must be Hallmark Channel.
-              if "HALLMARK" in " ".join(aliases):
-
-                  if (
-                      "HALLMARK MYSTERY"
-                      in combined
-                  ):
-                      return 0
-
-                  if (
-                      "HALLMARK FAMILY"
-                      in combined
-                  ):
-                      return 0
-
-                  if (
-                      "HALLMARK MOVIES"
-                      in combined
-                  ):
-                      return 0
-
-                  if (
-                      "HALLMARK CHANNEL"
-                      not in combined
-                  ):
-                      return 0
-
-              # ABC must not become ABC News.
-              if "ABC" in aliases:
-
-                  if "ABC NEWS" in combined:
-                      return 0
-
-                  if "ABCNEWSLIVE" in combined:
-                      return 0
-
-              # FOX must not become Fox News.
-              if "FOX" in aliases:
-
-                  if "FOX NEWS" in combined:
-                      return 0
-
-                  if "FOX WEATHER" in combined:
-                      return 0
-
-                  if "FOX BUSINESS" in combined:
-                      return 0
-
-              best = 0
-
-              for display_name in display_names:
-
-                  for alias in aliases:
-
-                      if display_name == alias:
-                          best = max(
-                              best,
-                              1000
-                          )
-
-                      elif display_name.startswith(
-                          alias + " "
-                      ):
-                          best = max(
-                              best,
-                              800
-                          )
-
-                      elif alias in display_name:
-                          best = max(
-                              best,
-                              500
-                          )
-
-              if best == 0:
-                  return 0
-
-              if (
-                  "EAST" in combined
-                  or "EASTERN" in combined
-              ):
-                  best += 300
-
-              if (
-                  "WABC" in combined
-                  and "ABC" in aliases
-              ):
-                  best += 500
-
-              if (
-                  "WNYW" in combined
-                  and "FOX" in aliases
-              ):
-                  best += 500
-
-              if (
-                  "WUTV" in combined
-                  and "FOX" in aliases
-              ):
-                  best += 500
-
-              if (
-                  "WNBC" in combined
-                  and "NBC" in aliases
-              ):
-                  best += 500
-
-              if (
-                  "WNBC-TV" in combined
-                  and "NBC" in aliases
-              ):
-                  best += 500
-
-              return best
-
-          with gzip.open(
-              SOURCE,
-              "rb"
-          ) as f:
-
-              tree = ET.parse(f)
-
-          root = tree.getroot()
-
-          source_channels = (
-              root.findall("channel")
-          )
-
-          selected = {}
-
-          print()
-          print(
-              "========================================"
-          )
-          print(
-              "EPG CHANNEL MATCHING"
-          )
-          print(
-              "========================================"
-          )
-
-          for target_id, aliases in channels.items():
-
-              normalized_aliases = [
-                  normalize(x)
-                  for x in aliases
-              ]
-
-              best = None
-              best_score = 0
-
-              for candidate in source_channels:
-
-                  candidate_score = score(
-                      candidate,
-                      normalized_aliases
-                  )
-
-                  if candidate_score > best_score:
-
-                      best_score = (
-                          candidate_score
+          CHANNELS = [
+              "ABC",
+              "CBS",
+              "NBC",
+              "FOX",
+              "The CW",
+              "PBS",
+              "CNN",
+              "CNBC",
+              "ESPN",
+              "ESPN2",
+              "USA Network",
+              "TNT",
+              "TBS",
+              "FX",
+              "FXX",
+              "Paramount Network",
+              "Syfy",
+              "Bravo",
+              "E!",
+              "Freeform",
+              "Disney Channel",
+              "Nickelodeon",
+              "Cartoon Network",
+              "Comedy Central",
+              "TCM",
+              "Hallmark Channel",
+              "AMC",
+              "HGTV",
+              "Game Show Network",
+          ]
+
+          def parse_playlist():
+              result = []
+
+              with open(PLAYLIST, "r", encoding="utf-8") as f:
+                  lines = [x.rstrip("\n") for x in f]
+
+              for i, line in enumerate(lines):
+                  if not line.startswith("#EXTINF"):
+                      continue
+
+                  m = re.search(r'tvg-id="([^"]*)"', line)
+                  n = re.search(r',(.+)$', line)
+
+                  if not m or not n:
+                      continue
+
+                  result.append(
+                      (
+                          n.group(1).strip(),
+                          m.group(1).strip()
                       )
-
-                      best = candidate
-
-              if best is None:
-
-                  print(
-                      f"SKIP: {target_id}"
                   )
 
-                  continue
+              return result
 
-              selected[
-                  target_id
-              ] = best
+          playlist_channels = parse_playlist()
 
-              print(
-                  f"MATCH: {target_id} <- "
-                  f"{best.get('id', '')} "
-                  f"score={best_score}"
-              )
-
-          if not selected:
-
-              raise SystemExit(
-                  "No EPG channels matched."
-              )
-
-          selected_elements = {
-              id(item)
-              for item in selected.values()
+          # Explicit guide IDs. These are exact XMLTV IDs, not substring matches.
+          GUIDE_IDS = {
+              "ABC": [
+                  "WABCTV.us",
+                  "ABC.us@East",
+              ],
+              "CBS": ["CBS.us@East"],
+              "NBC": ["NBC.us@East"],
+              "FOX": ["WUTV.us"],
+              "The CW": [
+                  "TheCW.us@East",
+                  "TheCW.us@WPIX",
+              ],
+              "PBS": ["PBS.us@KQED"],
+              "CNN": ["CNN.us@East"],
+              "CNBC": ["CNBC.us@East"],
+              "ESPN": ["ESPN.us"],
+              "ESPN2": ["ESPN2.us"],
+              "USA Network": ["USA.us@East"],
+              "TNT": ["TNT.us@East"],
+              "TBS": ["TBS.us@East"],
+              "FX": ["FX.us@East"],
+              "FXX": ["FXX.us@East"],
+              "Paramount Network": ["ParamountNetwork.us@East"],
+              "Syfy": ["SYFY.us@East"],
+              "Bravo": ["Bravo.us@East"],
+              "E!": ["E.us@East"],
+              "Freeform": ["Freeform.us@East"],
+              "Disney Channel": ["DisneyChannel.us@East"],
+              "Nickelodeon": ["Nickelodeon.us@East"],
+              "Cartoon Network": ["CartoonNetwork.us@East"],
+              "Comedy Central": [
+                  "ComedyCentral.us@East"
+              ],
+              "TCM": ["TCM.us@East"],
+              "Hallmark Channel": ["HallmarkChannel.us@East"],
+              "AMC": ["AMC.us@East"],
+              "HGTV": ["HGTV.us@East"],
+              "Game Show Network": ["GameShowNetwork.us@SD"],
           }
 
-          for channel in list(
-              root.findall("channel")
-          ):
+          source = gzip.open(SOURCE, "rb")
+          root = ET.parse(source).getroot()
+          source.close()
 
-              if id(channel) not in selected_elements:
-                  root.remove(channel)
+          wanted_ids = set()
 
-          source_to_target = {}
+          for channel_name, playlist_id in playlist_channels:
+              for candidate in GUIDE_IDS.get(channel_name, []):
+                  if candidate == playlist_id or candidate in GUIDE_IDS.get(channel_name, []):
+                      wanted_ids.add(candidate)
 
-          for target_id, candidate in selected.items():
+          # Build exact ID lookup.
+          source_channel_ids = {
+              c.attrib.get("id", "")
+              for c in root.findall("channel")
+          }
 
-              source_id = candidate.get(
-                  "id",
-                  ""
-              )
+          selected_ids = set()
 
-              candidate.set(
-                  "id",
-                  target_id
-              )
+          for channel_name in CHANNELS:
+              candidates = GUIDE_IDS.get(channel_name, [])
 
-              source_to_target[
-                  source_id
-              ] = target_id
+              # Prefer exact XMLTV ID.
+              for candidate in candidates:
+                  if candidate in source_channel_ids:
+                      selected_ids.add(candidate)
+                      print(f"EPG: {channel_name} -> {candidate}")
+                      break
+              else:
+                  print(f"EPG MISSING: {channel_name}")
 
-          programme_count = 0
+          new_root = ET.Element(
+              "tv",
+              {
+                  "generator-info-name": "Custom TiviMate Guide"
+              }
+          )
 
-          for programme in list(
-              root.findall("programme")
-          ):
+          for channel in root.findall("channel"):
+              cid = channel.attrib.get("id", "")
+              if cid in selected_ids:
+                  new_root.append(channel)
 
-              source_id = programme.get(
-                  "channel",
-                  ""
-              )
+          for programme in root.findall("programme"):
+              cid = programme.attrib.get("channel", "")
+              if cid in selected_ids:
+                  new_root.append(programme)
 
-              if source_id not in source_to_target:
+          tree = ET.ElementTree(new_root)
 
-                  root.remove(programme)
-                  continue
-
-              programme.set(
-                  "channel",
-                  source_to_target[
-                      source_id
-                  ]
-              )
-
-              programme_count += 1
-
-          if programme_count == 0:
-
-              raise SystemExit(
-                  "No EPG programmes found."
-              )
+          try:
+              ET.indent(tree, space="  ")
+          except AttributeError:
+              pass
 
           tree.write(
               OUTPUT,
@@ -1220,11 +738,8 @@ jobs:
               xml_declaration=True
           )
 
-          print()
-          print(
-              "EPG programmes:",
-              programme_count
-          )
+          print("")
+          print("Filtered EPG created.")
           PY
 
       - name: Validate generated files
@@ -1232,19 +747,16 @@ jobs:
           test -s public/channels.m3u
           test -s public/guide.xml
 
-          CHANNEL_COUNT=$(
-            grep -c '^#EXTINF' public/channels.m3u || true
-          )
-
-          PROGRAM_COUNT=$(
-            grep -c '<programme ' public/guide.xml || true
-          )
+          CHANNEL_COUNT=$(grep -c '^#EXTINF' public/channels.m3u || true)
+          PROGRAM_COUNT=$(grep -c '<programme ' public/guide.xml || true)
+          GUIDE_CHANNEL_COUNT=$(grep -c '<channel ' public/guide.xml || true)
 
           echo "Playlist channels: $CHANNEL_COUNT"
-          echo "EPG programmes: $PROGRAM_COUNT"
+          echo "Guide channels:    $GUIDE_CHANNEL_COUNT"
+          echo "EPG programmes:    $PROGRAM_COUNT"
 
           if [ "$CHANNEL_COUNT" -ne 29 ]; then
-            echo "ERROR: Expected 29 playlist channels."
+            echo "ERROR: Expected exactly 29 playlist channels."
             exit 1
           fi
 
@@ -1258,10 +770,35 @@ jobs:
             exit 1
           fi
 
+          # Make absolutely sure Fox News was not accidentally retained.
+          if grep -qi 'Fox News' public/channels.m3u; then
+            echo "ERROR: Fox News is still present."
+            exit 1
+          fi
+
+          # Make sure the FOX entry isn't Fox Deportes or another Fox-branded
+          # non-network channel.
+          if grep -qi 'FOX_DEPORTES\|Fox Deportes\|Fox News\|Fox Business\|Fox Weather' public/channels.m3u; then
+            echo "ERROR: Invalid FOX-branded channel detected."
+            exit 1
+          fi
+
+          # Make sure The CW wasn't replaced with an unrelated channel.
+          if grep -qi 'natgeo\|nationalgeographic' public/channels.m3u; then
+            echo "ERROR: Unrelated National Geographic stream detected."
+            exit 1
+          fi
+
+          echo "Validation passed."
+
       - name: Show generated files
         run: |
           echo "Generated files:"
           ls -lh public/
+
+          echo
+          echo "Playlist:"
+          cat public/channels.m3u
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
