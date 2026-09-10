@@ -1404,11 +1404,6 @@ jobs:
         run: |
           git clone --depth 1 "$ENGINE_REPO" nexus
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
       - name: Preserve stream feed identity
         working-directory: nexus
         run: |
@@ -1723,7 +1718,7 @@ jobs:
         working-directory: nexus
         env:
           NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
-          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.event.repository.name }}
         run: |
           npm run cli -- api --clean
 
@@ -1796,7 +1791,11 @@ jobs:
                   i += 1
                   continue
 
-              name = line.split(",", 1)[1].strip() if "," in line else ""
+              name = (
+                  line.split(",", 1)[1].strip()
+                  if "," in line
+                  else ""
+              )
 
               base_name = re.sub(
                   r"\s+\(\d+p\)$",
@@ -1812,15 +1811,9 @@ jobs:
 
               i += 2
 
-          if not output or output[0] != "#EXTM3U":
-              output.insert(
-                  0,
-                  '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
-              )
-          else:
-              output[0] = (
-                  '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
-              )
+          output[0] = (
+              '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
+          )
 
           path.write_text(
               "\n".join(output) + "\n"
@@ -1835,27 +1828,79 @@ jobs:
           print(f"Final curated playlist: {count} channel(s)")
           PY
 
-      - name: Create simple playlist URLs
+      - name: Create final EPG files
         run: |
+          set -e
+
           mkdir -p nexus/public/epg
 
-          if [ -f nexus/public/playlists/best.m3u ]; then
-            cp nexus/public/playlists/best.m3u \
-              nexus/public/channels.m3u
+          echo "Searching for generated guide.xml..."
+
+          find nexus -type f \
+            \( -name "guide.xml" -o -name "guide.xml.gz" \) \
+            -print || true
+
+          GUIDE_XML=""
+
+          if [ -s nexus/public/guide.xml ]; then
+            GUIDE_XML="nexus/public/guide.xml"
+          elif [ -s nexus/public/epg/guide.xml ]; then
+            GUIDE_XML="nexus/public/epg/guide.xml"
+          elif [ -s nexus/guide.xml ]; then
+            GUIDE_XML="nexus/guide.xml"
+          elif [ -s nexus/.data/guide.xml ]; then
+            GUIDE_XML="nexus/.data/guide.xml"
           fi
 
-          if [ -f nexus/public/epg/guide.xml ]; then
-            cp nexus/public/epg/guide.xml \
+          if [ -n "$GUIDE_XML" ]; then
+            echo "Using EPG: $GUIDE_XML"
+
+            cp "$GUIDE_XML" \
               nexus/public/guide.xml
+
+            cp "$GUIDE_XML" \
+              nexus/public/epg/guide.xml
+
+            gzip -9 -c \
+              "$GUIDE_XML" \
+              > nexus/public/epg/guide.xml.gz
+
+          elif [ -s nexus/public/guide.xml.gz ]; then
+            echo "Using existing compressed EPG"
+
+            cp nexus/public/guide.xml.gz \
+              nexus/public/epg/guide.xml.gz
+
+            gzip -dc \
+              nexus/public/epg/guide.xml.gz \
+              > nexus/public/guide.xml
+
+          elif [ -s nexus/public/epg/guide.xml.gz ]; then
+            echo "Using existing compressed EPG"
+
+            gzip -dc \
+              nexus/public/epg/guide.xml.gz \
+              > nexus/public/guide.xml
+
+          else
+            echo "ERROR: No guide.xml or guide.xml.gz was generated."
+            echo
+            echo "Files under nexus/public:"
+            find nexus/public -maxdepth 4 -type f -print || true
+            exit 1
           fi
 
-          if [ -f nexus/public/epg/guide.xml.gz ]; then
-            cp nexus/public/epg/guide.xml.gz \
-              nexus/public/epg/guide.xml.gz
-          elif [ -f nexus/public/guide.xml ]; then
-            gzip -9 -c nexus/public/guide.xml \
-              > nexus/public/epg/guide.xml.gz
-          fi
+          echo
+          echo "Final EPG files:"
+          ls -lh \
+            nexus/public/guide.xml \
+            nexus/public/epg/guide.xml \
+            nexus/public/epg/guide.xml.gz
+
+      - name: Create simple playlist URL
+        run: |
+          cp nexus/public/playlists/best.m3u \
+            nexus/public/channels.m3u
 
       - name: Verify final files
         run: |
@@ -1874,6 +1919,8 @@ jobs:
           echo "========================================"
 
           test -s nexus/public/epg/guide.xml.gz
+
+          gzip -t nexus/public/epg/guide.xml.gz
 
           ls -lh \
             nexus/public/epg/guide.xml.gz
