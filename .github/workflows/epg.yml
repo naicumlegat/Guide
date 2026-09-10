@@ -11,12 +11,16 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -24,76 +28,115 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Create public directory
+      - name: Install dependencies
         run: |
-          rm -rf public
-          mkdir -p public
+          python -m pip install --upgrade pip
+          pip install requests
 
-      - name: Download public channel sources
+      - name: Download source playlists and EPG
         run: |
-          curl -L --fail \
+          curl -L --fail --retry 3 \
             "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us.m3u" \
             -o current-us.m3u
 
-          curl -L --fail \
+          curl -L --fail --retry 3 \
             "https://iptv-org.github.io/iptv/cities/usnyc.m3u" \
             -o new-york.m3u
 
-          curl -L --fail \
+          curl -L --fail --retry 3 \
             "https://iptv-org.github.io/iptv/cities/usbos.m3u" \
             -o boston.m3u
 
-          test -s current-us.m3u
-          test -s new-york.m3u
-          test -s boston.m3u
+          curl -L --fail --retry 3 \
+            "https://vcicio.github.io/US-EPG/merged_epg.xml.gz" \
+            -o merged_epg.xml.gz
 
-      - name: Build verified playlist
+      - name: Build playlist and guide
         run: |
           python <<'PY'
+          import gzip
           import re
-          import sys
           import urllib.request
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
 
-          HEADERS = {
-              "User-Agent": "Mozilla/5.0"
-          }
+          CHANNELS = [
+              "ABC",
+              "CBS",
+              "NBC",
+              "The CW",
+              "PBS",
+              "CNN",
+              "CNBC",
+              "ESPN",
+              "ESPN2",
+              "USA Network",
+              "TNT",
+              "TBS",
+              "FX",
+              "FXX",
+              "Paramount Network",
+              "Syfy",
+              "Bravo",
+              "E!",
+              "Freeform",
+              "Disney Channel",
+              "Nickelodeon",
+              "Cartoon Network",
+              "Comedy Central",
+              "TCM",
+              "Hallmark Channel",
+              "AMC",
+              "HGTV",
+              "Game Show Network",
+              "WBZ-TV",
+          ]
 
           FROZEN = {
               "PBS": (
                   "PBS.us@KQED",
-                  "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"
+                  "PBS",
+                  "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8",
               ),
               "CNN": (
                   "CNN.us@East",
-                  "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"
+                  "CNN",
+                  "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8",
               ),
               "Syfy": (
                   "SYFY.us@East",
-                  "http://23.237.104.106:8080/USA_SYFY/index.m3u8"
+                  "Syfy",
+                  "http://23.237.104.106:8080/USA_SYFY/index.m3u8",
               ),
               "Bravo": (
                   "Bravo.us@East",
-                  "http://fl2.moveonjoy.com/BRAVO/index.m3u8"
+                  "Bravo",
+                  "http://fl2.moveonjoy.com/BRAVO/index.m3u8",
               ),
               "E!": (
                   "E.us@East",
-                  "http://23.237.104.106:8080/USA_E/index.m3u8"
+                  "E!",
+                  "http://23.237.104.106:8080/USA_E/index.m3u8",
               ),
               "Freeform": (
                   "Freeform.us@East",
-                  "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"
+                  "Freeform",
+                  "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
               ),
               "Nickelodeon": (
                   "Nickelodeon.us@East",
-                  "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"
+                  "Nickelodeon",
+                  "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8",
               ),
               "Cartoon Network": (
                   "CartoonNetwork.us@East",
-                  "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"
+                  "Cartoon Network",
+                  "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
               ),
               "Game Show Network": (
                   "GameShowNetwork.us@SD",
-                  "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"
+                  "Game Show Network",
+                  "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8",
               ),
           }
 
@@ -102,223 +145,174 @@ jobs:
                   (
                       "WCVBDT1.us",
                       "ABC 5 Boston WCVB",
-                      "https://lnc-wcvb.tubi.video/playlist.m3u8"
+                      "https://aegis-cloudfront-1.tubi.video/c2e3094d-ad56-4c5f-9655-cd80df71fbab/playlist.m3u8",
                   ),
               ],
-
               "WBZ-TV": [
                   (
                       "CBS.(WBZ).Boston,.MA.us",
                       "WBZ-TV Boston",
-                      "http://143.244.60.30/CBSEAST/index.m3u8"
+                      "http://143.244.60.30/CBSEAST/index.m3u8",
                   ),
               ],
-
               "CBS": [
                   (
                       "CBS.us@East",
                       "CBS East",
-                      "http://stream.cammonitorplus.net/1783/index.m3u8"
+                      "http://stream.cammonitorplus.net/1783/index.m3u8",
                   ),
                   (
                       "CBS.us@East",
                       "CBS East",
-                      "http://190.11.225.124:5000/live/cbs_hd/playlist.m3u8"
+                      "http://190.11.225.124:5000/live/cbs_hd/playlist.m3u8",
                   ),
                   (
                       "CBS.us@East",
                       "CBS East",
-                      "http://tvsen7.aynascope.net/cbs/index.m3u8"
+                      "http://tvsen7.aynascope.net/cbs/index.m3u8",
                   ),
               ],
-
               "NBC": [
                   (
                       "NBC.us@East",
                       "NBC East",
-                      "http://stream.cammonitorplus.net/1785/index.m3u8"
+                      "http://stream.cammonitorplus.net/1785/index.m3u8",
                   ),
                   (
                       "NBC.us@East",
                       "NBC East",
-                      "http://190.11.225.124:5000/live/nbc_hd/playlist.m3u8"
+                      "http://190.11.225.124:5000/live/nbc_hd/playlist.m3u8",
                   ),
                   (
                       "NBC.us@East",
                       "NBC East",
-                      "http://170.254.17.2/NBC/index.m3u8"
+                      "http://170.254.17.2/NBC/index.m3u8",
                   ),
               ],
-
               "The CW": [
                   (
                       "WPIX.us",
                       "WPIX The CW New York",
-                      "http://encodercdn1.frontline.ca/kamino/output/pix11_720p/playlist.m3u8"
+                      "http://encodercdn1.frontline.ca/kamino/output/pix11_720p/playlist.m3u8",
                   ),
                   (
                       "WPIX.us",
                       "WPIX The CW New York",
-                      "https://encodercdn1.frontline.ca/kamino/output/pix11_720p/playlist.m3u8"
+                      "https://encodercdn1.frontline.ca/kamino/output/pix11_720p/playlist.m3u8",
                   ),
               ],
-
               "CNBC": [
                   (
                       "CNBC.us@East",
                       "CNBC East",
-                      "http://41.205.93.154/CNBC/index.m3u8"
+                      "http://41.205.93.154/CNBC/index.m3u8",
                   ),
                   (
                       "CNBC.us@East",
                       "CNBC East",
-                      "http://143.244.60.30/CNBC/index.m3u8"
+                      "http://143.244.60.30/CNBC/index.m3u8",
                   ),
                   (
                       "CNBC.us@East",
                       "CNBC East",
-                      "https://stream.livenewsplay.com:9443/hls/cnbc/cnbcsd.m3u8"
+                      "https://stream.livenewsplay.com:9443/hls/cnbc/cnbcsd.m3u8",
                   ),
                   (
                       "CNBC.us@East",
                       "CNBC East",
-                      "http://fl2.moveonjoy.com/CNBC/index.m3u8"
+                      "http://fl2.moveonjoy.com/CNBC/index.m3u8",
                   ),
               ],
-
               "ESPN": [
                   (
                       "ESPN.us",
                       "ESPN",
-                      "http://fl1.moveonjoy.com/ESPN/index.m3u8"
+                      "http://fl1.moveonjoy.com/ESPN/index.m3u8",
                   ),
               ],
-
               "ESPN2": [
                   (
                       "ESPN2.us",
                       "ESPN2",
-                      "http://fl2.moveonjoy.com/ESPN_2/index.m3u8"
+                      "http://fl2.moveonjoy.com/ESPN_2/index.m3u8",
                   ),
               ],
-
               "TNT": [
                   (
                       "TNT.us@East",
                       "TNT East",
-                      "http://170.254.18.106/TNT/index.m3u8"
+                      "http://170.254.18.106/TNT/index.m3u8",
                   ),
               ],
-
               "TBS": [
                   (
                       "TBS.us@East",
                       "TBS East",
-                      "http://143.244.60.30/TBS/index.m3u8"
+                      "http://143.244.60.30/TBS/index.m3u8",
                   ),
               ],
-
               "FXX": [
                   (
                       "FXX.us@East",
                       "FXX East",
-                      "http://23.237.104.106:8080/USA_FXX/index.m3u8"
+                      "http://23.237.104.106:8080/USA_FXX/index.m3u8",
                   ),
               ],
-
               "Paramount Network": [
                   (
                       "ParamountNetwork.us@East",
                       "Paramount Network East",
-                      "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"
+                      "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
                   ),
               ],
-
               "Disney Channel": [
                   (
                       "DisneyChannel.us@East",
                       "Disney Channel East",
-                      "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"
+                      "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8",
                   ),
               ],
-
               "Comedy Central": [
                   (
                       "ComedyCentral.us@East",
                       "Comedy Central East",
-                      "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"
+                      "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8",
                   ),
               ],
-
               "TCM": [
                   (
                       "TCM.us@East",
                       "TCM East",
-                      "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"
+                      "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
                   ),
               ],
-
               "Hallmark Channel": [
                   (
                       "HallmarkChannel.us@East",
                       "Hallmark Channel East",
-                      "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"
+                      "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8",
                   ),
                   (
                       "HallmarkChannel.us@East",
                       "Hallmark Channel East",
-                      "http://40.160.24.53/HALLMARK/index.m3u8"
+                      "http://40.160.24.53/HALLMARK/index.m3u8",
                   ),
               ],
-
               "AMC": [
                   (
                       "AMC.us@East",
                       "AMC East",
-                      "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8"
+                      "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8",
                   ),
               ],
-
               "HGTV": [
                   (
                       "HGTV.us@East",
                       "HGTV East",
-                      "http://212.102.60.231/HGTV/index.m3u8"
+                      "http://212.102.60.231/HGTV/index.m3u8",
                   ),
               ],
           }
-
-          CHANNELS = [
-              ("ABC", "ABC", "Broadcast"),
-              ("CBS", "CBS", "Broadcast"),
-              ("NBC", "NBC", "Broadcast"),
-              ("The CW", "The CW", "Broadcast"),
-              ("PBS", "PBS", "Broadcast"),
-              ("CNN", "CNN", "News"),
-              ("CNBC", "CNBC", "News"),
-              ("ESPN", "ESPN", "Sports"),
-              ("ESPN2", "ESPN2", "Sports"),
-              ("USA Network", "USA Network", "Entertainment"),
-              ("TNT", "TNT", "Entertainment"),
-              ("TBS", "TBS", "Entertainment"),
-              ("FX", "FX", "Entertainment"),
-              ("FXX", "FXX", "Entertainment"),
-              ("Paramount Network", "Paramount Network", "Entertainment"),
-              ("Syfy", "Syfy", "Entertainment"),
-              ("Bravo", "Bravo", "Entertainment"),
-              ("E!", "E!", "Entertainment"),
-              ("Freeform", "Freeform", "Entertainment"),
-              ("Disney Channel", "Disney Channel", "Kids"),
-              ("Nickelodeon", "Nickelodeon", "Kids"),
-              ("Cartoon Network", "Cartoon Network", "Kids"),
-              ("Comedy Central", "Comedy Central", "Comedy"),
-              ("TCM", "TCM", "Movies"),
-              ("Hallmark Channel", "Hallmark Channel", "Movies"),
-              ("AMC", "AMC", "Movies"),
-              ("HGTV", "HGTV", "Lifestyle"),
-              ("Game Show Network", "Game Show Network", "Entertainment"),
-              ("WBZ-TV", "WBZ-TV", "Broadcast"),
-          ]
 
           REQUIRED_IDS = {
               "ABC": {"WCVBDT1.us"},
@@ -358,232 +352,6 @@ jobs:
               },
           }
 
-          def fetch(url, timeout=15):
-              req = urllib.request.Request(url, headers=HEADERS)
-              return urllib.request.urlopen(req, timeout=timeout)
-
-          def test_stream(url):
-              try:
-                  with fetch(url) as r:
-                      status = getattr(r, "status", 200)
-                      content_type = (r.headers.get("Content-Type") or "").lower()
-                      data = r.read(32768)
-
-                      if status < 200 or status >= 400:
-                          return False, f"HTTP {status}"
-
-                      if not data:
-                          return False, "empty response"
-
-                      text = data.decode("utf-8", errors="ignore")
-
-                      if b"#EXTM3U" in data:
-                          if "#EXTINF:" in text or "#EXT-X-STREAM-INF:" in text:
-                              return True, f"HLS {status} {content_type}"
-
-                          return False, "HLS playlist has no media entries"
-
-                      if (
-                          "video" in content_type
-                          or "mpeg" in content_type
-                          or "octet-stream" in content_type
-                          or url.lower().endswith(".ts")
-                      ):
-                          return True, f"media {status} {content_type}"
-
-                      if len(data) >= 1024 and not text.lstrip().lower().startswith(
-                          ("<html", "<!doctype", "<head")
-                      ):
-                          return True, f"binary {status} {content_type}"
-
-                      return False, f"not a stream ({content_type})"
-
-              except Exception as e:
-                  return False, str(e)
-
-          def identity_allowed(channel, stream_id):
-              if stream_id in FORBIDDEN.get(channel, set()):
-                  return False
-
-              allowed = REQUIRED_IDS.get(channel)
-
-              if allowed is not None and stream_id not in allowed:
-                  return False
-
-              return True
-
-          def find_in_m3u(path, channel):
-              results = []
-
-              with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                  lines = [x.rstrip("\n") for x in f]
-
-              for i, line in enumerate(lines):
-                  if not line.startswith("#EXTINF"):
-                      continue
-
-                  m_id = re.search(r'tvg-id="([^"]*)"', line)
-
-                  if not m_id or i + 1 >= len(lines):
-                      continue
-
-                  stream_id = m_id.group(1)
-                  url = lines[i + 1].strip()
-
-                  if not url.startswith(("http://", "https://")):
-                      continue
-
-                  if not identity_allowed(channel, stream_id):
-                      continue
-
-                  results.append((stream_id, line, url))
-
-              return results
-
-          verified = {}
-
-          print("")
-          print("=" * 60)
-          print("STRICT VERIFIED STREAM SELECTION")
-          print("=" * 60)
-
-          for channel, display_name, group in CHANNELS:
-
-              if channel in FROZEN:
-                  stream_id, url = FROZEN[channel]
-                  verified[channel] = (stream_id, url)
-
-                  print(f"FROZEN: {channel}")
-                  print(f"        {url}")
-                  continue
-
-              candidates = []
-
-              for source in ("current-us.m3u", "new-york.m3u", "boston.m3u"):
-                  for item in find_in_m3u(source, channel):
-                      if item not in candidates:
-                          candidates.append(item)
-
-              for stream_id, identity_name, url in CANDIDATES.get(channel, []):
-                  if not identity_allowed(channel, stream_id):
-                      continue
-
-                  item = (
-                      stream_id,
-                      f"#EXTINF:-1,{identity_name}",
-                      url
-                  )
-
-                  if item not in candidates:
-                      candidates.append(item)
-
-              found = None
-
-              for stream_id, identity_name, url in candidates:
-
-                  if not identity_allowed(channel, stream_id):
-                      print(f"REJECTED IDENTITY: {channel}")
-                      print(f"                 {stream_id}")
-                      continue
-
-                  ok, reason = test_stream(url)
-
-                  if ok:
-                      found = (stream_id, url)
-
-                      print(f"VERIFIED: {channel}")
-                      print(f"          ID:  {stream_id}")
-                      print(f"          URL: {url}")
-                      print(f"          TEST: {reason}")
-
-                      break
-
-                  print(f"FAILED: {channel}")
-                  print(f"        ID:  {stream_id}")
-                  print(f"        URL: {url}")
-                  print(f"        TEST: {reason}")
-
-              if found is None:
-                  print("")
-                  print(f"ERROR: No verified stream found for {channel}")
-                  print("The workflow will NOT substitute an unrelated channel.")
-                  sys.exit(1)
-
-              verified[channel] = found
-
-          with open("public/channels.m3u", "w", encoding="utf-8") as out:
-              out.write("#EXTM3U\n")
-
-              for channel, display_name, group in CHANNELS:
-                  stream_id, url = verified[channel]
-
-                  out.write(
-                      f'#EXTINF:-1 tvg-id="{stream_id}" '
-                      f'group-title="{group}",{display_name}\n'
-                  )
-                  out.write(url + "\n")
-
-          print("")
-          print("=" * 60)
-          print("FINAL PLAYLIST")
-          print("=" * 60)
-
-          with open("public/channels.m3u", "r", encoding="utf-8") as f:
-              print(f.read())
-          PY
-
-      - name: Download current US EPG
-        run: |
-          curl -L --fail \
-            "https://vcicio.github.io/US-EPG/merged_epg.xml.gz" \
-            -o epg.xml.gz
-
-          test -s epg.xml.gz
-          ls -lh epg.xml.gz
-
-      - name: Build filtered EPG
-        run: |
-          python <<'PY'
-          import gzip
-          import re
-          import xml.etree.ElementTree as ET
-
-          PLAYLIST = "public/channels.m3u"
-          SOURCE = "epg.xml.gz"
-          OUTPUT = "public/guide.xml"
-
-          CHANNELS = [
-              "ABC",
-              "CBS",
-              "NBC",
-              "The CW",
-              "PBS",
-              "CNN",
-              "CNBC",
-              "ESPN",
-              "ESPN2",
-              "USA Network",
-              "TNT",
-              "TBS",
-              "FX",
-              "FXX",
-              "Paramount Network",
-              "Syfy",
-              "Bravo",
-              "E!",
-              "Freeform",
-              "Disney Channel",
-              "Nickelodeon",
-              "Cartoon Network",
-              "Comedy Central",
-              "TCM",
-              "Hallmark Channel",
-              "AMC",
-              "HGTV",
-              "Game Show Network",
-              "WBZ-TV",
-          ]
-
           GUIDE_IDS = {
               "ABC": ["WCVBDT1.us"],
               "CBS": ["CBS.us@East"],
@@ -616,141 +384,370 @@ jobs:
               "WBZ-TV": ["CBS.(WBZ).Boston,.MA.us"],
           }
 
-          with open(PLAYLIST, "r", encoding="utf-8") as f:
-              lines = [x.rstrip("\n") for x in f]
-
-          playlist_channels = []
-
-          for i, line in enumerate(lines):
-              if not line.startswith("#EXTINF"):
-                  continue
-
-              if i + 1 >= len(lines):
-                  continue
-
-              m_id = re.search(r'tvg-id="([^"]*)"', line)
-              m_name = re.search(r',(.+)$', line)
-
-              if m_id and m_name:
-                  playlist_channels.append(
-                      (
-                          m_name.group(1).strip(),
-                          m_id.group(1).strip()
-                      )
-                  )
-
-          with gzip.open(SOURCE, "rb") as f:
-              root = ET.parse(f).getroot()
-
-          source_channel_ids = {
-              c.attrib.get("id", "")
-              for c in root.findall("channel")
+          HEADERS = {
+              "User-Agent": "Mozilla/5.0",
+              "Accept": "*/*",
           }
 
-          selected_ids = set()
+          def parse_m3u(path):
+              entries = []
+              lines = Path(path).read_text(
+                  encoding="utf-8",
+                  errors="ignore"
+              ).splitlines()
 
-          for channel_name in CHANNELS:
-              candidates = GUIDE_IDS.get(channel_name, [])
+              current = None
 
-              for candidate in candidates:
-                  if candidate in source_channel_ids:
-                      selected_ids.add(candidate)
-                      print(f"EPG: {channel_name} -> {candidate}")
+              for line in lines:
+                  line = line.strip()
+
+                  if line.startswith("#EXTINF:"):
+                      current = line
+                  elif current and line and not line.startswith("#"):
+                      entries.append((current, line))
+                      current = None
+
+              return entries
+
+          def extract_attr(extinf, attr):
+              m = re.search(
+                  rf'{re.escape(attr)}="([^"]*)"',
+                  extinf
+              )
+              return m.group(1) if m else ""
+
+          sources = []
+
+          for filename in [
+              "current-us.m3u",
+              "new-york.m3u",
+              "boston.m3u",
+          ]:
+              sources.extend(parse_m3u(filename))
+
+          def fetch(url, timeout=15):
+              req = urllib.request.Request(
+                  url,
+                  headers=HEADERS
+              )
+              return urllib.request.urlopen(
+                  req,
+                  timeout=timeout
+              )
+
+          def test_stream(url):
+              try:
+                  with fetch(url) as r:
+                      status = getattr(r, "status", 200)
+                      content_type = (
+                          r.headers.get("Content-Type") or ""
+                      ).lower()
+
+                      data = r.read(32768)
+
+                      if status < 200 or status >= 400:
+                          return False, f"HTTP {status}"
+
+                      if not data:
+                          return False, "empty response"
+
+                      text = data.decode(
+                          "utf-8",
+                          errors="ignore"
+                      )
+
+                      if b"#EXTM3U" in data:
+                          if (
+                              "#EXTINF:" in text
+                              or "#EXT-X-STREAM-INF:" in text
+                          ):
+                              return True, (
+                                  f"HLS {status} {content_type}"
+                              )
+
+                          return False, (
+                              "HLS playlist has no media entries"
+                          )
+
+                      if (
+                          "video" in content_type
+                          or "mpeg" in content_type
+                          or "octet-stream" in content_type
+                          or url.lower().endswith(".ts")
+                      ):
+                          return True, (
+                              f"media {status} {content_type}"
+                          )
+
+                      if (
+                          len(data) >= 1024
+                          and not text.lstrip().lower().startswith(
+                              ("<html", "<!doctype", "<head")
+                          )
+                      ):
+                          return True, (
+                              f"binary {status} {content_type}"
+                          )
+
+                      return False, (
+                          f"not a stream ({content_type})"
+                      )
+
+              except Exception as e:
+                  return False, str(e)
+
+          Path("public").mkdir(exist_ok=True)
+
+          playlist_lines = [
+              "#EXTM3U",
+          ]
+
+          selected = {}
+
+          print("=" * 60)
+          print("STRICT VERIFIED STREAM SELECTION")
+          print("=" * 60)
+
+          for channel in CHANNELS:
+              candidates = []
+
+              if channel in FROZEN:
+                  candidates.append(FROZEN[channel])
+
+              allowed_ids = REQUIRED_IDS.get(
+                  channel,
+                  set()
+              )
+
+              for extinf, url in sources:
+                  tvg_id = extract_attr(
+                      extinf,
+                      "tvg-id"
+                  )
+
+                  if tvg_id in allowed_ids:
+                      candidates.append(
+                          (
+                              tvg_id,
+                              channel,
+                              url,
+                          )
+                      )
+
+              candidates.extend(
+                  CANDIDATES.get(channel, [])
+              )
+
+              forbidden_ids = FORBIDDEN.get(
+                  channel,
+                  set()
+              )
+
+              found = None
+
+              for tvg_id, display_name, url in candidates:
+                  if (
+                      tvg_id not in allowed_ids
+                      and channel not in FROZEN
+                  ):
+                      continue
+
+                  if tvg_id in forbidden_ids:
+                      continue
+
+                  ok, reason = test_stream(url)
+
+                  if ok:
+                      found = (
+                          tvg_id,
+                          display_name,
+                          url,
+                          reason,
+                      )
                       break
-              else:
-                  print(f"EPG MISSING: {channel_name}")
 
-          new_root = ET.Element(
-              "tv",
-              {
-                  "generator-info-name": "Custom TiviMate Guide"
-              }
+                  print(
+                      f"FAILED: {channel}\n"
+                      f"        ID:  {tvg_id}\n"
+                      f"        URL: {url}\n"
+                      f"        TEST: {reason}\n"
+                  )
+
+              if not found:
+                  print(
+                      f"\nERROR: No verified stream found for {channel}"
+                  )
+                  print(
+                      "The workflow will NOT substitute "
+                      "an unrelated channel."
+                  )
+                  raise SystemExit(1)
+
+              tvg_id, display_name, url, reason = found
+
+              selected[channel] = (
+                  tvg_id,
+                  display_name,
+                  url,
+              )
+
+              playlist_lines.append(
+                  f'#EXTINF:-1 tvg-id="{tvg_id}" '
+                  f'group-title="USA",{display_name}'
+              )
+              playlist_lines.append(url)
+
+              print(
+                  f"VERIFIED: {channel}\n"
+                  f"          ID:  {tvg_id}\n"
+                  f"          URL: {url}\n"
+                  f"          TEST: {reason}\n"
+              )
+
+          Path("public/channels.m3u").write_text(
+              "\n".join(playlist_lines) + "\n",
+              encoding="utf-8",
           )
 
-          for channel in root.findall("channel"):
-              cid = channel.attrib.get("id", "")
+          if grep := re.search(
+              r'^#EXTINF.*FOX',
+              Path("public/channels.m3u").read_text(
+                  encoding="utf-8"
+              ),
+              re.IGNORECASE | re.MULTILINE,
+          ):
+              print(
+                  "ERROR: FOX is still present in the playlist."
+              )
+              raise SystemExit(1)
 
-              if cid in selected_ids:
-                  new_root.append(channel)
+          playlist_text = Path(
+              "public/channels.m3u"
+          ).read_text(
+              encoding="utf-8"
+          )
 
-          for programme in root.findall("programme"):
-              cid = programme.attrib.get("channel", "")
+          if re.search(
+              r"Fox News|Fox Deportes|Fox Business|Fox Weather",
+              playlist_text,
+              re.IGNORECASE,
+          ):
+              print(
+                  "ERROR: Invalid FOX-branded channel detected."
+              )
+              raise SystemExit(1)
 
-              if cid in selected_ids:
-                  new_root.append(programme)
+          if re.search(
+              r"natgeo|nationalgeographic",
+              playlist_text,
+              re.IGNORECASE,
+          ):
+              print(
+                  "ERROR: Unrelated National Geographic "
+                  "stream detected."
+              )
+              raise SystemExit(1)
 
-          tree = ET.ElementTree(new_root)
+          with gzip.open(
+              "merged_epg.xml.gz",
+              "rb"
+          ) as f:
+              epg_root = ET.fromstring(f.read())
 
-          try:
-              ET.indent(tree, space="  ")
-          except AttributeError:
-              pass
+          channels_by_id = {
+              c.attrib.get("id"): c
+              for c in epg_root.findall("channel")
+          }
+
+          programs_by_channel = {}
+
+          for programme in epg_root.findall("programme"):
+              channel_id = programme.attrib.get("channel")
+
+              if channel_id:
+                  programs_by_channel.setdefault(
+                      channel_id,
+                      []
+                  ).append(programme)
+
+          guide_root = ET.Element("tv")
+
+          for channel in CHANNELS:
+              if channel not in selected:
+                  continue
+
+              selected_id = selected[channel][0]
+
+              guide_ids = GUIDE_IDS.get(
+                  channel,
+                  [selected_id]
+              )
+
+              source_channel = None
+
+              for guide_id in guide_ids:
+                  if guide_id in channels_by_id:
+                      source_channel = channels_by_id[
+                          guide_id
+                      ]
+                      break
+
+              if source_channel is None:
+                  print(
+                      f"EPG MISSING: {channel}"
+                  )
+                  continue
+
+              new_channel = ET.SubElement(
+                  guide_root,
+                  "channel",
+                  {"id": selected_id},
+              )
+
+              display = source_channel.find("display-name")
+
+              if display is not None:
+                  new_display = ET.SubElement(
+                      new_channel,
+                      "display-name",
+                  )
+                  new_display.text = display.text
+
+              for programme in programs_by_channel.get(
+                  source_channel.attrib.get("id"),
+                  [],
+              ):
+                  new_programme = ET.fromstring(
+                      ET.tostring(programme)
+                  )
+                  new_programme.set(
+                      "channel",
+                      selected_id,
+                  )
+                  guide_root.append(
+                      new_programme
+                  )
+
+          tree = ET.ElementTree(guide_root)
+
+          ET.indent(
+              tree,
+              space="  "
+          )
 
           tree.write(
-              OUTPUT,
+              "public/guide.xml",
               encoding="utf-8",
-              xml_declaration=True
+              xml_declaration=True,
           )
 
-          print("")
-          print("Filtered EPG created.")
+          print()
+          print(
+              f"Built {len(selected)} verified channels."
+          )
           PY
 
-      - name: Validate generated files
-        run: |
-          test -s public/channels.m3u
-          test -s public/guide.xml
-
-          CHANNEL_COUNT=$(grep -c '^#EXTINF' public/channels.m3u || true)
-          PROGRAM_COUNT=$(grep -c '<programme ' public/guide.xml || true)
-          GUIDE_CHANNEL_COUNT=$(grep -c '<channel ' public/guide.xml || true)
-
-          echo "Playlist channels: $CHANNEL_COUNT"
-          echo "Guide channels:    $GUIDE_CHANNEL_COUNT"
-          echo "EPG programmes:    $PROGRAM_COUNT"
-
-          if [ "$CHANNEL_COUNT" -ne 29 ]; then
-            echo "ERROR: Expected exactly 29 playlist channels."
-            exit 1
-          fi
-
-          if ! grep -q '<tv' public/guide.xml; then
-            echo "ERROR: guide.xml is not valid XMLTV."
-            exit 1
-          fi
-
-          if [ "$PROGRAM_COUNT" -lt 1 ]; then
-            echo "ERROR: guide.xml contains no programmes."
-            exit 1
-          fi
-
-          if grep -qi '^#EXTINF.*FOX' public/channels.m3u; then
-            echo "ERROR: FOX is still present in the playlist."
-            exit 1
-          fi
-
-          if grep -qi 'Fox News\|Fox Deportes\|Fox Business\|Fox Weather' public/channels.m3u; then
-            echo "ERROR: Invalid FOX-branded channel detected."
-            exit 1
-          fi
-
-          if grep -qi 'natgeo\|nationalgeographic' public/channels.m3u; then
-            echo "ERROR: Unrelated National Geographic stream detected."
-            exit 1
-          fi
-
-          echo "Validation passed."
-
-      - name: Show generated files
-        run: |
-          echo "Generated files:"
-          ls -lh public/
-
-          echo
-          echo "Playlist:"
-          cat public/channels.m3u
-
-      - name: Setup Pages
+      - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
