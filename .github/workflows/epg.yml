@@ -233,10 +233,42 @@ jobs:
               .toLowerCase()
               .replace(/\s+/g, " ");
 
+          const isMiamiABC = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("wplg") ||
+              names.some((name) =>
+                name.includes("wplg") ||
+                name.includes("miami")
+              )
+            );
+          };
+
+          const hasMiamiABC = dataset.channels.some((channel) => {
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              names.includes("abc") &&
+              channel.country === "US" &&
+              isMiamiABC(channel)
+            );
+          });
+
           dataset.channels = dataset.channels.filter((channel) => {
             const names = [
               channel.name,
-              ...channel.alt_names,
+              ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
 
             const isCurated = names.some((name) =>
@@ -244,6 +276,10 @@ jobs:
             );
 
             if (!isCurated) return false;
+
+            if (names.includes("abc") && hasMiamiABC) {
+              return isMiamiABC(channel);
+            }
 
             if (names.includes("hgtv")) return true;
 
@@ -305,423 +341,209 @@ jobs:
         run: |
           npm install --no-audit --no-fund
 
-      - name: Build feed-specific EPG channel lists
+      - name: Build all curated EPG source mappings
         run: |
           python - <<'PY'
           import json
-          from pathlib import Path
-          import xml.etree.ElementTree as ET
           import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
 
           dataset_path = Path("nexus/.data/channels.json")
-          config_path = Path("nexus/config/epg-grab.yml")
-          output_dir = Path("epg/custom")
+          epg_sites = Path("epg/sites")
+          output = Path("epg/custom/all-curated-us.channels.xml")
 
-          output_dir.mkdir(parents=True, exist_ok=True)
-
-          dataset = json.loads(dataset_path.read_text())
-
-          channels = dataset.get("channels", [])
-          guides = dataset.get("guides", [])
+          dataset = json.loads(
+              dataset_path.read_text()
+          )
 
           curated_ids = {
               str(channel.get("id", "")).strip()
-              for channel in channels
+              for channel in dataset.get("channels", [])
               if channel.get("id")
           }
 
-          curated_names = {}
+          if not curated_ids:
+              raise SystemExit(
+                  "No curated channel IDs found."
+              )
 
-          for channel in channels:
-              channel_id = str(
-                  channel.get("id", "")
-              ).strip()
+          print("========================================")
+          print("BUILD ALL CURATED EPG MAPPINGS")
+          print("========================================")
+          print(
+              f"Curated channel IDs: {len(curated_ids)}"
+          )
 
-              if not channel_id:
-                  continue
+          root = ET.Element("channels")
 
-              names = {
-                  str(channel.get("name", "")).strip().lower(),
-                  *{
-                      str(name).strip().lower()
-                      for name in channel.get("alt_names", [])
-                      if name
-                  },
-              }
+          seen = set()
+          total = 0
+          source_files = 0
 
-              curated_names[channel_id] = {
-                  name
-                  for name in names
-                  if name
-              }
-
-          sites = []
-          current = None
-
-          for raw in config_path.read_text().splitlines():
-              line = raw.replace("\r", "").rstrip()
-
-              if not line.strip() or line.lstrip().startswith("#"):
-                  continue
-
-              stripped = line.strip()
-
-              if stripped == "sites:":
-                  continue
-
-              item = re.match(r"^\s*-\s*(.*)$", line)
-
-              if item:
-                  if (
-                      current
-                      and current.get("site")
-                      and current.get("enabled", True)
-                  ):
-                      sites.append(current)
-
-                  current = {}
-
-                  if item.group(1):
-                      m = re.match(
-                          r"^([A-Za-z_][\w-]*)\s*:\s*(.*)$",
-                          item.group(1)
-                      )
-
-                      if m:
-                          value = m.group(2).strip()
-                          value = value.strip("'\"")
-                          current[m.group(1)] = value
-
-                  continue
-
-              if current is not None:
-                  m = re.match(
-                      r"^\s*([A-Za-z_][\w-]*)\s*:\s*(.*)$",
-                      line
+          for channels_file in sorted(
+              epg_sites.rglob("*.channels.xml")
+          ):
+              try:
+                  source_root = ET.parse(
+                      channels_file
+                  ).getroot()
+              except Exception as exc:
+                  print(
+                      f"Skipping unreadable {channels_file}: {exc}"
                   )
+                  continue
 
-                  if not m:
+              matched_file = 0
+
+              for channel in source_root.findall("channel"):
+                  xmltv_id = (
+                      channel.get("xmltv_id") or ""
+                  ).strip()
+
+                  if not xmltv_id:
                       continue
 
-                  key = m.group(1)
-                  value = m.group(2).strip()
+                  base_id = xmltv_id.split(
+                      "@",
+                      1
+                  )[0].strip()
 
-                  if value == "true":
-                      value = True
-                  elif value == "false":
-                      value = False
-                  elif re.fullmatch(r"-?\d+", value):
-                      value = int(value)
-                  else:
-                      value = value.strip("'\"")
+                  if base_id not in curated_ids:
+                      continue
 
-                  current[key] = value
+                  site = (
+                      channel.get("site") or ""
+                  ).strip()
 
-          if (
-              current
-              and current.get("site")
-              and current.get("enabled", True)
-          ):
-              sites.append(current)
+                  site_id = (
+                      channel.get("site_id") or ""
+                  ).strip()
 
-          by_site = {}
+                  lang = (
+                      channel.get("lang") or "en"
+                  ).strip()
 
-          for guide in guides:
-              channel_id = str(
-                  guide.get("channel") or ""
-              ).strip()
+                  if not site or not site_id:
+                      continue
 
-              site = str(
-                  guide.get("site") or ""
-              ).strip()
-
-              site_id = str(
-                  guide.get("site_id") or ""
-              ).strip()
-
-              lang = str(
-                  guide.get("lang") or "en"
-              ).strip()
-
-              if not channel_id:
-                  continue
-
-              if channel_id not in curated_ids:
-                  continue
-
-              if not site or not site_id:
-                  continue
-
-              # The guide only needs to belong to one of our
-              # curated channels. Do not require the guide feed
-              # to exactly match the stream feed.
-              xmltv_id = channel_id
-
-              key = (
-                  site.lower(),
-                  site_id.lower(),
-                  lang.lower(),
-                  xmltv_id.lower(),
-              )
-
-              by_site.setdefault(site, {})
-
-              if key in by_site[site]:
-                  continue
-
-              channel_name = next(
-                  (
-                      str(c.get("name", channel_id))
-                      for c in channels
-                      if str(c.get("id", "")) == channel_id
-                  ),
-                  channel_id,
-              )
-
-              by_site[site][key] = {
-                  "site": site,
-                  "site_id": site_id,
-                  "lang": lang,
-                  "xmltv_id": xmltv_id,
-                  "name": channel_name,
-              }
-
-          print()
-          print("========================================")
-          print("CURATED EPG CHANNEL LISTS")
-          print("========================================")
-
-          total = 0
-
-          for site_config in sites:
-              site = str(site_config["site"])
-
-              entries = list(
-                  by_site.get(site, {}).values()
-              )
-
-              slug = (
-                  str(
-                      site_config.get("slug")
-                      or re.sub(
-                          r"[^a-z0-9]+",
-                          "-",
-                          site.lower()
-                      )
+                  key = (
+                      site,
+                      site_id,
+                      lang,
+                      xmltv_id,
                   )
-                  .strip("-")
-              )
 
-              output = output_dir / f"{slug}.channels.xml"
+                  if key in seen:
+                      continue
 
-              root = ET.Element("channels")
+                  seen.add(key)
 
-              for entry in sorted(
-                  entries,
-                  key=lambda x: (
-                      x["xmltv_id"],
-                      x["site_id"],
-                  )
-              ):
-                  node = ET.SubElement(
+                  new_channel = ET.SubElement(
                       root,
                       "channel",
                       {
-                          "site": entry["site"],
-                          "site_id": entry["site_id"],
-                          "lang": entry["lang"],
-                          "xmltv_id": entry["xmltv_id"],
+                          "site": site,
+                          "site_id": site_id,
+                          "lang": lang,
+                          "xmltv_id": xmltv_id,
                       },
                   )
 
-                  node.text = entry["name"]
+                  new_channel.text = (
+                      channel.text or base_id
+                  ).strip()
 
-              try:
-                  ET.indent(root, space="  ")
-              except AttributeError:
-                  pass
+                  matched_file += 1
+                  total += 1
 
-              ET.ElementTree(root).write(
-                  output,
-                  encoding="utf-8",
-                  xml_declaration=True,
+              if matched_file:
+                  source_files += 1
+                  print(
+                      f"{channels_file}: "
+                      f"{matched_file} matching mapping(s)"
+                  )
+
+          if total == 0:
+              raise SystemExit(
+                  "No EPG mappings matched the curated channel IDs."
               )
 
-              print(
-                  f"{site}: {len(entries)} curated channel mapping(s)"
-              )
+          output.parent.mkdir(
+              parents=True,
+              exist_ok=True
+          )
 
-              total += len(entries)
+          try:
+              ET.indent(root, space="  ")
+          except AttributeError:
+              pass
+
+          ET.ElementTree(root).write(
+              output,
+              encoding="utf-8",
+              xml_declaration=True,
+          )
 
           print("----------------------------------------")
-          print(f"Total curated EPG mappings: {total}")
+          print(
+              f"EPG source files matched: {source_files}"
+          )
+          print(
+              f"Total EPG mappings: {total}"
+          )
+          print(
+              f"Output: {output}"
+          )
           print("========================================")
           PY
 
-      - name: Grab feed-specific EPG sources
+      - name: Grab all curated EPG sources
         run: |
           set -e
 
           mkdir -p guides
 
-          sites=$(node - <<'NODE'
-          const fs = require("fs");
+          rm -f epg/guide.xml
+          rm -f epg/guide.xml.gz
 
-          const text = fs.readFileSync(
-            "nexus/config/epg-grab.yml",
-            "utf8"
-          );
+          echo "========================================"
+          echo "GRAB ALL CURATED EPG SOURCES"
+          echo "========================================"
 
-          const sites = [];
-          let current = null;
+          (
+            cd epg
 
-          for (const raw of text.split(/\r?\n/)) {
-            const line = raw.replace(/\s+#.*$/, "").trimEnd();
+            npm run grab -- \
+              --channels=custom/all-curated-us.channels.xml \
+              --output=guide.xml \
+              --days=3 \
+              --timeout=30000 \
+              --maxConnections=12 \
+              --gzip
+          ) || true
 
-            if (!line.trim() || line.trim().startsWith("#")) {
-              continue;
-            }
+          if [ ! -s epg/guide.xml ]; then
+            echo "No combined EPG guide was produced."
+            exit 1
+          fi
 
-            if (line.trim() === "sites:") {
-              continue;
-            }
+          programmes=$(grep -c '<programme' epg/guide.xml || true)
 
-            const item = /^\s*-\s*(.*)$/.exec(line);
+          if [ "${programmes:-0}" -lt 1 ]; then
+            echo "No EPG programmes were produced."
+            exit 1
+          fi
 
-            if (item) {
-              if (
-                current &&
-                current.site &&
-                current.enabled !== false
-              ) {
-                sites.push(current);
-              }
+          if [ -f epg/guide.xml.gz ]; then
+            cp epg/guide.xml.gz \
+              guides/all-curated-us.xml.gz
+          else
+            gzip -9 -c epg/guide.xml \
+              > guides/all-curated-us.xml.gz
+          fi
 
-              current = {};
-
-              if (item[1]) {
-                const m =
-                  /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
-                    item[1]
-                  );
-
-                if (m) {
-                  current[m[1]] =
-                    m[2].replace(/^['"]|['"]$/g, "");
-                }
-              }
-
-              continue;
-            }
-
-            if (current) {
-              const m =
-                /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
-                  line.trim()
-                );
-
-              if (!m) {
-                continue;
-              }
-
-              let value = m[2].trim();
-
-              if (value === "true") {
-                value = true;
-              } else if (value === "false") {
-                value = false;
-              } else if (/^-?\d+$/.test(value)) {
-                value = Number(value);
-              } else {
-                value = value.replace(
-                  /^['"]|['"]$/g,
-                  ""
-                );
-              }
-
-              current[m[1]] = value;
-            }
-          }
-
-          if (
-            current &&
-            current.site &&
-            current.enabled !== false
-          ) {
-            sites.push(current);
-          }
-
-          for (const site of sites) {
-            console.log(
-              [
-                site.site,
-                site.slug ||
-                  String(site.site).replace(
-                    /[^a-z0-9]+/gi,
-                    "-"
-                  ),
-                site.timeout || 30000,
-                site.max_connections || 8
-              ].join("|")
-            );
-          }
-          NODE
-          )
-
-          while IFS="|" read -r site slug timeout connections; do
-            [ -z "$site" ] && continue
-
-            channels_file="epg/custom/${slug}.channels.xml"
-
-            echo "========================================"
-            echo "EPG: $site"
-            echo "========================================"
-
-            if [ ! -s "$channels_file" ]; then
-              echo "No curated channel mappings for $site"
-              continue
-            fi
-
-            echo "Channel mappings:"
-            grep -c '<channel ' "$channels_file" || true
-
-            rm -f epg/guide.xml
-            rm -f epg/guide.xml.gz
-
-            (
-              cd epg
-
-              npm run grab -- \
-                --channels="custom/${slug}.channels.xml" \
-                --output=guide.xml \
-                --days=3 \
-                --timeout="$timeout" \
-                --maxConnections="$connections" \
-                --gzip
-            ) || true
-
-            if [ ! -s epg/guide.xml ]; then
-              echo "No guide produced for $site"
-              continue
-            fi
-
-            programmes=$(grep -c '<programme' epg/guide.xml || true)
-
-            if [ "${programmes:-0}" -lt 1 ]; then
-              echo "No programmes produced for $site"
-              continue
-            fi
-
-            if [ -f epg/guide.xml.gz ]; then
-              cp epg/guide.xml.gz \
-                "guides/${slug}.xml.gz"
-            else
-              gzip -9 -c epg/guide.xml > \
-                "guides/${slug}.xml.gz"
-            fi
-
-            echo "Saved $site: $programmes programme(s)"
-          done <<< "$sites"
+          echo "Programs collected: $programmes"
 
       - name: Publish EPG state
         env:
@@ -965,10 +787,42 @@ jobs:
               .toLowerCase()
               .replace(/\s+/g, " ");
 
+          const isMiamiABC = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("wplg") ||
+              names.some((name) =>
+                name.includes("wplg") ||
+                name.includes("miami")
+              )
+            );
+          };
+
+          const hasMiamiABC = dataset.channels.some((channel) => {
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              names.includes("abc") &&
+              channel.country === "US" &&
+              isMiamiABC(channel)
+            );
+          });
+
           dataset.channels = dataset.channels.filter((channel) => {
             const names = [
               channel.name,
-              ...channel.alt_names,
+              ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
 
             const isCurated = names.some((name) =>
@@ -976,6 +830,10 @@ jobs:
             );
 
             if (!isCurated) return false;
+
+            if (names.includes("abc") && hasMiamiABC) {
+              return isMiamiABC(channel);
+            }
 
             if (names.includes("hgtv")) return true;
 
@@ -1225,10 +1083,42 @@ jobs:
               .toLowerCase()
               .replace(/\s+/g, " ");
 
+          const isMiamiABC = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("wplg") ||
+              names.some((name) =>
+                name.includes("wplg") ||
+                name.includes("miami")
+              )
+            );
+          };
+
+          const hasMiamiABC = dataset.channels.some((channel) => {
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              names.includes("abc") &&
+              channel.country === "US" &&
+              isMiamiABC(channel)
+            );
+          });
+
           dataset.channels = dataset.channels.filter((channel) => {
             const names = [
               channel.name,
-              ...channel.alt_names,
+              ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
 
             const isCurated = names.some((name) =>
@@ -1236,6 +1126,10 @@ jobs:
             );
 
             if (!isCurated) return false;
+
+            if (names.includes("abc") && hasMiamiABC) {
+              return isMiamiABC(channel);
+            }
 
             if (names.includes("hgtv")) return true;
 
@@ -1690,10 +1584,42 @@ jobs:
               .toLowerCase()
               .replace(/\s+/g, " ");
 
+          const isMiamiABC = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("wplg") ||
+              names.some((name) =>
+                name.includes("wplg") ||
+                name.includes("miami")
+              )
+            );
+          };
+
+          const hasMiamiABC = dataset.channels.some((channel) => {
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              names.includes("abc") &&
+              channel.country === "US" &&
+              isMiamiABC(channel)
+            );
+          });
+
           dataset.channels = dataset.channels.filter((channel) => {
             const names = [
               channel.name,
-              ...channel.alt_names,
+              ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
 
             const isCurated = names.some((name) =>
@@ -1701,6 +1627,10 @@ jobs:
             );
 
             if (!isCurated) return false;
+
+            if (names.includes("abc") && hasMiamiABC) {
+              return isMiamiABC(channel);
+            }
 
             if (names.includes("hgtv")) return true;
 
@@ -1761,7 +1691,7 @@ jobs:
         working-directory: nexus
         env:
           NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
-          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.event.repository.name }}
         run: |
           npm run cli -- api --clean
 
@@ -1785,95 +1715,20 @@ jobs:
                   "Could not find aggregated channels.json"
               )
 
-          curated = {
-              "NBC",
-              "CBS",
-              "ABC",
-              "Fox",
-              "PBS",
-              "Game Show Network",
-              "History",
-              "Discovery",
-              "AMC",
-              "FX",
-              "SYFY",
-              "Comedy Central",
-              "Paramount",
-              "MTV",
-              "Freeform",
-              "Hallmark Movies & More",
-              "HGTV",
-              "Bravo",
-              "E!",
-              "Lifetime",
-              "Disney Channel",
-              "Nickelodeon",
-              "Cartoon Network",
-              "FXX",
-              "HBO",
-              "HBO Hits",
-              "HBO Movies",
-              "Starz",
-              "Starz Cinema",
-              "Starz Comedy",
-              "Cinemax",
-              "Showtime",
-              "A&E",
-              "Bloomberg TV",
-              "Documentary+",
-              "Paramount+ Picks",
-              "Paramount Movie Channel",
-              "The Jamie Oliver Channel",
-              "The Nanny",
-          }
-
-          def normalize(value):
-              return re.sub(
-                  r"\s+",
-                  " ",
-                  str(value).strip().lower()
-              )
-
-          curated_names = {
-              normalize(name)
-              for name in curated
-          }
-
           dataset = json.loads(
               dataset_path.read_text()
           )
 
-          curated_ids = set()
+          curated_ids = {
+              str(channel.get("id", "")).strip()
+              for channel in dataset.get("channels", [])
+              if channel.get("id")
+          }
 
-          for channel in dataset.get("channels", []):
-              channel_id = str(
-                  channel.get("id", "")
-              ).strip()
-
-              if not channel_id:
-                  continue
-
-              names = [
-                  channel.get("name", ""),
-                  *channel.get("alt_names", []),
-              ]
-
-              names = {
-                  normalize(name)
-                  for name in names
-                  if name
-              }
-
-              if not names.intersection(curated_names):
-                  continue
-
-              if normalize(
-                  channel.get("name", "")
-              ) != "hgtv":
-                  if channel.get("country") != "US":
-                      continue
-
-              curated_ids.add(channel_id)
+          if not curated_ids:
+              raise SystemExit(
+                  "No curated channel IDs found"
+              )
 
           print(
               f"Curated channel IDs: {len(curated_ids)}"
@@ -1889,19 +1744,19 @@ jobs:
               line = lines[i]
 
               if not line.startswith("#EXTINF:"):
-                  output.append(line)
                   i += 1
                   continue
-
-              tvg_id = ""
 
               match = re.search(
                   r'tvg-id="([^"]*)"',
                   line
               )
 
-              if match:
-                  tvg_id = match.group(1).strip()
+              tvg_id = (
+                  match.group(1).strip()
+                  if match
+                  else ""
+              )
 
               if tvg_id in curated_ids:
                   output.append(line)
@@ -1916,7 +1771,8 @@ jobs:
                   "Whitelist removed every channel"
               )
 
-          output[0] = (
+          output.insert(
+              0,
               '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
           )
 
@@ -1947,14 +1803,33 @@ jobs:
 
           python - <<'PY'
           import gzip
+          import json
           import xml.etree.ElementTree as ET
           from pathlib import Path
 
           source_dir = Path("epg-state")
           output_xml = Path("nexus/public/guide.xml")
-          output_gz = Path("nexus/public/epg/guide.xml.gz")
+          output_gz = Path(
+              "nexus/public/epg/guide.xml.gz"
+          )
 
-          files = sorted(source_dir.glob("*.xml.gz"))
+          dataset_path = Path(
+              "nexus/.data/channels.json"
+          )
+
+          dataset = json.loads(
+              dataset_path.read_text()
+          )
+
+          curated_ids = {
+              str(channel.get("id", "")).strip()
+              for channel in dataset.get("channels", [])
+              if channel.get("id")
+          }
+
+          files = sorted(
+              source_dir.glob("*.xml.gz")
+          )
 
           if not files:
               raise SystemExit(
@@ -1962,59 +1837,125 @@ jobs:
               )
 
           print("EPG state files:")
+
           for file in files:
               print(f"  {file}")
 
           root = ET.Element(
               "tv",
               {
-                  "generator-info-name": "Guide Curated IPTV",
+                  "generator-info-name":
+                      "Guide Curated IPTV",
               },
           )
 
           channel_ids = set()
           programme_keys = set()
 
+          def normalize_channel_id(value):
+              if not value:
+                  return value
+
+              value = str(value).strip()
+
+              base = value.split(
+                  "@",
+                  1
+              )[0].strip()
+
+              if base in curated_ids:
+                  return base
+
+              return value
+
           for file in files:
               print(f"Reading {file}")
 
               with gzip.open(file, "rb") as fh:
-                  source_root = ET.parse(fh).getroot()
+                  source_root = ET.parse(
+                      fh
+                  ).getroot()
 
-              for channel in source_root.findall("channel"):
-                  channel_id = channel.get("id")
+              for channel in source_root.findall(
+                  "channel"
+              ):
+                  original_id = channel.get("id")
 
-                  if not channel_id:
+                  if not original_id:
                       continue
+
+                  channel_id = normalize_channel_id(
+                      original_id
+                  )
+
+                  if channel_id not in curated_ids:
+                      continue
+
+                  new_channel = ET.fromstring(
+                      ET.tostring(channel)
+                  )
+
+                  new_channel.set(
+                      "id",
+                      channel_id
+                  )
 
                   if channel_id in channel_ids:
                       continue
 
                   channel_ids.add(channel_id)
-                  root.append(channel)
+                  root.append(new_channel)
 
-              for programme in source_root.findall("programme"):
+              for programme in source_root.findall(
+                  "programme"
+              ):
+                  original_channel = (
+                      programme.get("channel")
+                  )
+
+                  if not original_channel:
+                      continue
+
+                  channel_id = normalize_channel_id(
+                      original_channel
+                  )
+
+                  if channel_id not in curated_ids:
+                      continue
+
+                  new_programme = ET.fromstring(
+                      ET.tostring(programme)
+                  )
+
+                  new_programme.set(
+                      "channel",
+                      channel_id
+                  )
+
                   key = (
-                      programme.get("channel"),
-                      programme.get("start"),
-                      programme.get("stop"),
-                      "".join(programme.itertext()),
+                      channel_id,
+                      new_programme.get("start"),
+                      new_programme.get("stop"),
+                      ET.tostring(
+                          new_programme,
+                          encoding="unicode"
+                      ),
                   )
 
                   if key in programme_keys:
                       continue
 
                   programme_keys.add(key)
-                  root.append(programme)
+                  root.append(new_programme)
 
           if not channel_ids:
               raise SystemExit(
-                  "ERROR: Restored EPG files contained no channels."
+                  "ERROR: Restored EPG files contained no curated channels."
               )
 
           if not programme_keys:
               raise SystemExit(
-                  "ERROR: Restored EPG files contained no programmes."
+                  "ERROR: Restored EPG files contained no curated programmes."
               )
 
           try:
@@ -2047,10 +1988,18 @@ jobs:
                   target.write(source.read())
 
           print()
-          print(f"EPG channels: {len(channel_ids)}")
-          print(f"EPG programmes: {len(programme_keys)}")
-          print(f"XMLTV: {output_xml}")
-          print(f"GZIP: {output_gz}")
+          print(
+              f"EPG channels: {len(channel_ids)}"
+          )
+          print(
+              f"EPG programmes: {len(programme_keys)}"
+          )
+          print(
+              f"XMLTV: {output_xml}"
+          )
+          print(
+              f"GZIP: {output_gz}"
+          )
           PY
 
           cp nexus/public/guide.xml \
