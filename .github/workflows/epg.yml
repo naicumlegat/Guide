@@ -200,7 +200,6 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
-            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
@@ -241,6 +240,31 @@ jobs:
             );
           };
 
+          const isABC4Utah = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("abc4utah") ||
+              channelId.includes("abc4-utah") ||
+              channelId.includes("abc-4-utah") ||
+              channelId.includes("ktvx") ||
+              names.some((name) =>
+                name.includes("abc4utah") ||
+                name.includes("abc4-utah") ||
+                name.includes("abc 4 utah") ||
+                name.includes("abc4 utah") ||
+                name.includes("ktvx")
+              )
+            );
+          };
+
           const isMiamiABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
@@ -269,12 +293,15 @@ jobs:
             return (
               names.includes("abc") &&
               channel.country === "US" &&
+              !isABC4Utah(channel) &&
               isMiamiABC(channel)
             );
           });
 
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
+
+            if (isABC4Utah(channel)) return false;
 
             const names = [
               channel.name,
@@ -712,7 +739,6 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
-            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
@@ -753,6 +779,31 @@ jobs:
             );
           };
 
+          const isABC4Utah = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("abc4utah") ||
+              channelId.includes("abc4-utah") ||
+              channelId.includes("abc-4-utah") ||
+              channelId.includes("ktvx") ||
+              names.some((name) =>
+                name.includes("abc4utah") ||
+                name.includes("abc4-utah") ||
+                name.includes("abc 4 utah") ||
+                name.includes("abc4 utah") ||
+                name.includes("ktvx")
+              )
+            );
+          };
+
           const isMiamiABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
@@ -781,12 +832,15 @@ jobs:
             return (
               names.includes("abc") &&
               channel.country === "US" &&
+              !isABC4Utah(channel) &&
               isMiamiABC(channel)
             );
           });
 
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
+
+            if (isABC4Utah(channel)) return false;
 
             const names = [
               channel.name,
@@ -1012,7 +1066,6 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
-            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
@@ -1053,6 +1106,31 @@ jobs:
             );
           };
 
+          const isABC4Utah = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("abc4utah") ||
+              channelId.includes("abc4-utah") ||
+              channelId.includes("abc-4-utah") ||
+              channelId.includes("ktvx") ||
+              names.some((name) =>
+                name.includes("abc4utah") ||
+                name.includes("abc4-utah") ||
+                name.includes("abc 4 utah") ||
+                name.includes("abc4 utah") ||
+                name.includes("ktvx")
+              )
+            );
+          };
+
           const isMiamiABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
@@ -1081,12 +1159,15 @@ jobs:
             return (
               names.includes("abc") &&
               channel.country === "US" &&
+              !isABC4Utah(channel) &&
               isMiamiABC(channel)
             );
           });
 
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
+
+            if (isABC4Utah(channel)) return false;
 
             const names = [
               channel.name,
@@ -1507,7 +1588,6 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
-            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
@@ -1548,6 +1628,31 @@ jobs:
             );
           };
 
+          const isABC4Utah = (channel: any): boolean => {
+            const channelId = String(
+              channel.id ?? ""
+            ).trim().toLowerCase();
+
+            const names = [
+              channel.name,
+              ...(channel.alt_names ?? []),
+            ].map(normalizeCuratedName);
+
+            return (
+              channelId.includes("abc4utah") ||
+              channelId.includes("abc4-utah") ||
+              channelId.includes("abc-4-utah") ||
+              channelId.includes("ktvx") ||
+              names.some((name) =>
+                name.includes("abc4utah") ||
+                name.includes("abc4-utah") ||
+                name.includes("abc 4 utah") ||
+                name.includes("abc4 utah") ||
+                name.includes("ktvx")
+              )
+            );
+          };
+
           const isMiamiABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
@@ -1576,12 +1681,15 @@ jobs:
             return (
               names.includes("abc") &&
               channel.country === "US" &&
+              !isABC4Utah(channel) &&
               isMiamiABC(channel)
             );
           });
 
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
+
+            if (isABC4Utah(channel)) return false;
 
             const names = [
               channel.name,
