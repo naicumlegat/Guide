@@ -2,7 +2,7 @@ name: Build Curated IPTV
 
 on:
   schedule:
-    - cron: "15 0,6,12,18 * * *"
+    - cron: "15 1,6,12,18 * * *"
     - cron: "0 1 * * *"
     - cron: "0 2 * * *"
     - cron: "0 3,15 * * *"
@@ -1387,7 +1387,7 @@ jobs:
       always() &&
       (
         github.event_name == 'workflow_dispatch' ||
-        github.event.schedule == '15 0,6,12,18 * * *'
+        github.event.schedule == '15 1,6,12,18 * * *'
       )
     runs-on: ubuntu-latest
     timeout-minutes: 90
