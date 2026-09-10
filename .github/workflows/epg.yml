@@ -29,105 +29,227 @@ jobs:
           rm -rf public
           mkdir -p public
 
-      - name: Create M3U playlist
+      - name: Find current working streams
         run: |
-          cat > public/channels.m3u <<'EOF'
-          #EXTM3U
+          curl -L --fail \
+            "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us.m3u" \
+            -o current-us.m3u
 
-          #EXTINF:-1 tvg-id="ABC.us@East" group-title="Broadcast",ABC
-          http://190.11.225.124:5000/live/abc_hd/playlist.m3u8
+          python <<'PY'
+          import re
+          import urllib.request
+          import concurrent.futures
 
-          #EXTINF:-1 tvg-id="CBS.us@East" group-title="Broadcast",CBS
-          http://stream.cammonitorplus.net/1783/index.m3u8
+          # Your 30 channels and their previous fallback URLs.
+          channels = [
+              ("ABC.us@East", "Broadcast", "ABC",
+               "http://190.11.225.124:5000/live/abc_hd/playlist.m3u8"),
 
-          #EXTINF:-1 tvg-id="NBC.us@East" group-title="Broadcast",NBC
-          http://stream.cammonitorplus.net/1785/index.m3u8
+              ("CBS.us@East", "Broadcast", "CBS",
+               "http://stream.cammonitorplus.net/1783/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="Fox.us@East" group-title="Broadcast",FOX
-          http://stream.cammonitorplus.net/1752/index.m3u8
+              ("NBC.us@East", "Broadcast", "NBC",
+               "http://stream.cammonitorplus.net/1785/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="TheCW.us@SD" group-title="Broadcast",The CW
-          https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8
+              ("Fox.us@East", "Broadcast", "FOX",
+               "http://stream.cammonitorplus.net/1752/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="PBS.us@KQED" group-title="Broadcast",PBS
-          https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8
+              ("TheCW.us@SD", "Broadcast", "The CW",
+               "https://fl7.moveonjoy.com/FL_Tampa_CW44/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="CNN.us@East" group-title="News",CNN
-          https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8
+              ("PBS.us@KQED", "Broadcast", "PBS",
+               "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8"),
 
-          #EXTINF:-1 tvg-id="FoxNewsChannel.us@SD" group-title="News",Fox News
-          http://45.190.28.50/FOX_NEWS/index.m3u8
+              ("CNN.us@East", "News", "CNN",
+               "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8"),
 
-          #EXTINF:-1 tvg-id="CNBC.us@East" group-title="News",CNBC
-          http://fl2.moveonjoy.com/CNBC/index.m3u8
+              ("FoxNewsChannel.us@SD", "News", "Fox News",
+               "http://45.190.28.50/FOX_NEWS/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="ESPN.us" group-title="Sports",ESPN
-          http://fl1.moveonjoy.com/ESPN/index.m3u8
+              ("CNBC.us@East", "News", "CNBC",
+               "http://fl2.moveonjoy.com/CNBC/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="ESPN2.us" group-title="Sports",ESPN2
-          http://fl2.moveonjoy.com/ESPN_2/index.m3u8
+              ("ESPN.us", "Sports", "ESPN",
+               "http://fl1.moveonjoy.com/ESPN/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="USA.us@East" group-title="Entertainment",USA Network
-          http://fl1.moveonjoy.com/USA_NETWORK/index.m3u8
+              ("ESPN2.us", "Sports", "ESPN2",
+               "http://fl2.moveonjoy.com/ESPN_2/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="TNT.us@East" group-title="Entertainment",TNT
-          http://170.254.18.106/TNT/index.m3u8
+              ("USA.us@East", "Entertainment", "USA Network",
+               "http://fl1.moveonjoy.com/USA_NETWORK/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="TBS.us@East" group-title="Entertainment",TBS
-          http://143.244.60.30/TBS/index.m3u8
+              ("TNT.us@East", "Entertainment", "TNT",
+               "http://170.254.18.106/TNT/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="FX.us@East" group-title="Entertainment",FX
-          http://23.237.104.106:8080/USA_FX/index.m3u8
+              ("TBS.us@East", "Entertainment", "TBS",
+               "http://143.244.60.30/TBS/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="FXX.us@East" group-title="Entertainment",FXX
-          http://23.237.104.106:8080/USA_FXX/index.m3u8
+              ("FX.us@East", "Entertainment", "FX",
+               "http://23.237.104.106:8080/USA_FX/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="ParamountNetwork.us@East" group-title="Entertainment",Paramount Network
-          https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8
+              ("FXX.us@East", "Entertainment", "FXX",
+               "http://23.237.104.106:8080/USA_FXX/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="SYFY.us@East" group-title="Entertainment",Syfy
-          http://23.237.104.106:8080/USA_SYFY/index.m3u8
+              ("ParamountNetwork.us@East", "Entertainment", "Paramount Network",
+               "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="Bravo.us@East" group-title="Entertainment",Bravo
-          http://fl2.moveonjoy.com/BRAVO/index.m3u8
+              ("SYFY.us@East", "Entertainment", "Syfy",
+               "http://23.237.104.106:8080/USA_SYFY/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="E.us@East" group-title="Entertainment",E!
-          http://23.237.104.106:8080/USA_E/index.m3u8
+              ("Bravo.us@East", "Entertainment", "Bravo",
+               "http://fl2.moveonjoy.com/BRAVO/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="Freeform.us@East" group-title="Entertainment",Freeform
-          http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8
+              ("E.us@East", "Entertainment", "E!",
+               "http://23.237.104.106:8080/USA_E/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="DisneyChannel.us@East" group-title="Kids",Disney Channel
-          https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8
+              ("Freeform.us@East", "Entertainment", "Freeform",
+               "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8"),
 
-          #EXTINF:-1 tvg-id="Nickelodeon.us@East" group-title="Kids",Nickelodeon
-          http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8
+              ("DisneyChannel.us@East", "Kids", "Disney Channel",
+               "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="CartoonNetwork.us@East" group-title="Kids",Cartoon Network
-          http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8
+              ("Nickelodeon.us@East", "Kids", "Nickelodeon",
+               "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="ComedyCentral.us@East" group-title="Comedy",Comedy Central
-          http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8
+              ("CartoonNetwork.us@East", "Kids", "Cartoon Network",
+               "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="TCM.us@East" group-title="Movies",TCM
-          http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts
+              ("ComedyCentral.us@East", "Comedy", "Comedy Central",
+               "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="HallmarkChannel.us@East" group-title="Movies",Hallmark Channel
-          http://23.237.104.106:8080/USA_HALLMARK/index.m3u8
+              ("TCM.us@East", "Movies", "TCM",
+               "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts"),
 
-          #EXTINF:-1 tvg-id="AMC.us@East" group-title="Movies",AMC
-          https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8
+              ("HallmarkChannel.us@East", "Movies", "Hallmark Channel",
+               "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="HGTV.us@East" group-title="Lifestyle",HGTV
-          http://212.102.60.231/HGTV/index.m3u8
+              ("AMC.us@East", "Movies", "AMC",
+               "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8"),
 
-          #EXTINF:-1 tvg-id="GameShowNetwork.us@East" group-title="Entertainment",Game Show Network
-          https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8
-          EOF
+              ("HGTV.us@East", "Lifestyle", "HGTV",
+               "http://212.102.60.231/HGTV/index.m3u8"),
 
-          echo "Created public/channels.m3u"
-          echo "Channel count:"
-          grep -c '^#EXTINF' public/channels.m3u
+              ("GameShowNetwork.us@East", "Entertainment", "Game Show Network",
+               "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8"),
+          ]
+
+          # Some channels use a different ID in IPTV-org.
+          id_aliases = {
+              "USA.us@East": ["USA.us@East", "USANetwork.us@East"],
+          }
+
+          def parse_m3u(path):
+              entries = []
+              lines = open(path, encoding="utf-8", errors="ignore").read().splitlines()
+
+              for i, line in enumerate(lines):
+                  if not line.startswith("#EXTINF"):
+                      continue
+
+                  match = re.search(r'tvg-id="([^"]*)"', line)
+                  if not match:
+                      continue
+
+                  tvg_id = match.group(1)
+
+                  if i + 1 >= len(lines):
+                      continue
+
+                  url = lines[i + 1].strip()
+
+                  if not url.startswith(("http://", "https://")):
+                      continue
+
+                  entries.append((tvg_id, url))
+
+              return entries
+
+          entries = parse_m3u("current-us.m3u")
+
+          def test_url(url):
+              try:
+                  request = urllib.request.Request(
+                      url,
+                      headers={
+                          "User-Agent": "Mozilla/5.0",
+                          "Range": "bytes=0-1023"
+                      }
+                  )
+
+                  with urllib.request.urlopen(request, timeout=8) as response:
+                      return response.status in range(200, 400)
+              except Exception:
+                  return False
+
+          # Build candidates for each requested channel.
+          candidates = {}
+
+          for tvg_id, group, name, fallback in channels:
+              ids = id_aliases.get(tvg_id, [tvg_id])
+
+              found = []
+
+              for source_id, url in entries:
+                  if source_id in ids:
+                      found.append(url)
+
+              # Remove duplicates while preserving order.
+              candidates[tvg_id] = list(dict.fromkeys(found))
+
+          selected = {}
+
+          # Test current sources.
+          all_tests = {}
+
+          with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+              for tvg_id, urls in candidates.items():
+                  for url in urls:
+                      all_tests[(tvg_id, url)] = executor.submit(
+                          test_url,
+                          url
+                      )
+
+              for tvg_id, urls in candidates.items():
+                  for url in urls:
+                      try:
+                          if all_tests[(tvg_id, url)].result():
+                              selected[tvg_id] = url
+                              break
+                      except Exception:
+                          pass
+
+          # Use the original URL only when no current source worked.
+          for tvg_id, group, name, fallback in channels:
+              if tvg_id not in selected:
+                  selected[tvg_id] = fallback
+
+          with open("public/channels.m3u", "w", encoding="utf-8") as f:
+              f.write("#EXTM3U\n\n")
+
+              for tvg_id, group, name, fallback in channels:
+                  url = selected[tvg_id]
+
+                  f.write(
+                      f'#EXTINF:-1 tvg-id="{tvg_id}" '
+                      f'group-title="{group}",{name}\n'
+                  )
+                  f.write(url + "\n\n")
+
+          print()
+          print("Final playlist:")
+          print()
+
+          for tvg_id, group, name, fallback in channels:
+              if selected[tvg_id] != fallback:
+                  print(f"REPLACED: {name}")
+                  print(f"  {selected[tvg_id]}")
+              else:
+                  print(f"FALLBACK: {name}")
+                  print(f"  {fallback}")
+
+          print()
+          print("Playlist channels:", len(channels))
+          PY
 
       - name: Download current US EPG
         run: |
@@ -189,21 +311,17 @@ jobs:
               return re.sub(r"\s+", " ", value).strip()
 
           def get_names(channel):
-              names = []
-
-              for node in channel.findall("display-name"):
-                  if node.text:
-                      names.append(normalize(node.text))
-
-              return names
+              return [
+                  normalize(node.text)
+                  for node in channel.findall("display-name")
+                  if node.text
+              ]
 
           def score_candidate(candidate, aliases):
-              channel_id_raw = candidate["id"]
-              channel_id = normalize(channel_id_raw)
+              channel_id = normalize(candidate["id"])
               names = candidate["names"]
               combined = " ".join([channel_id] + names)
 
-              # Reject non-Eastern feeds.
               forbidden = [
                   "PACIFIC",
                   "WESTERN",
@@ -213,16 +331,12 @@ jobs:
                   "MIDWEST",
               ]
 
-              for word in forbidden:
-                  if word in combined:
-                      return 0
+              if any(word in combined for word in forbidden):
+                  return 0
 
-              # Reject US2 sources. This check is performed after
-              # normalization, so ".us2" becomes "US2".
               if re.search(r"\bUS2\b", channel_id):
                   return 0
 
-              # Never use AMC+ as AMC.
               if "AMC+" in combined or "AMC PLUS" in combined:
                   return 0
 
@@ -240,16 +354,9 @@ jobs:
               if score == 0:
                   return 0
 
-              # Prefer Eastern feeds.
-              for term in [
-                  "EASTERN",
-                  "EAST",
-                  "EAST FEED",
-              ]:
-                  if term in combined:
-                      score += 300
+              if any(x in combined for x in ["EASTERN", "EAST", "EAST FEED"]):
+                  score += 300
 
-              # Prefer US1.
               if re.search(r"\bUS1\b", channel_id):
                   score += 250
 
@@ -273,7 +380,7 @@ jobs:
           used_source_ids = set()
 
           for target_id, aliases in channels.items():
-              aliases = [normalize(alias) for alias in aliases]
+              aliases = [normalize(x) for x in aliases]
 
               best = None
               best_score = 0
@@ -294,7 +401,7 @@ jobs:
 
           print()
           print("Requested channels:", len(channels))
-          print("Matched channels:", len(selected))
+          print("Matched EPG channels:", len(selected))
           print()
 
           for target_id in channels:
@@ -312,7 +419,6 @@ jobs:
               else:
                   print("SKIP:", target_id)
 
-          # Remove every channel that wasn't selected.
           selected_elements = {
               id(candidate["element"])
               for candidate in selected.values()
@@ -322,17 +428,13 @@ jobs:
               if id(channel) not in selected_elements:
                   root.remove(channel)
 
-          # Map the source XMLTV IDs to the IDs used by our M3U.
           source_to_target = {}
 
           for target_id, candidate in selected.items():
               source_id = candidate["id"]
-
               candidate["element"].set("id", target_id)
-
               source_to_target[source_id] = target_id
 
-          # Keep only programmes belonging to selected channels.
           programme_count = 0
 
           for programme in list(root.findall("programme")):
@@ -352,14 +454,10 @@ jobs:
           print("Programme entries:", programme_count)
 
           if not selected:
-              raise SystemExit(
-                  "ERROR: No EPG channels were matched."
-              )
+              raise SystemExit("ERROR: No EPG channels were matched.")
 
           if programme_count == 0:
-              raise SystemExit(
-                  "ERROR: No programme entries were found."
-              )
+              raise SystemExit("ERROR: No programme entries were found.")
 
           tree.write(
               OUTPUT,
@@ -388,7 +486,7 @@ jobs:
           fi
 
           if ! grep -q '<tv' public/guide.xml; then
-            echo "ERROR: guide.xml is not a valid XMLTV document."
+            echo "ERROR: guide.xml is not valid XMLTV."
             exit 1
           fi
 
