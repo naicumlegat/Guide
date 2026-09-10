@@ -1,750 +1,958 @@
-name: Build and Deploy Guide
+name: Build Curated IPTV
 
 on:
+  schedule:
+    - cron: "15 0,6,12,18 * * *"
+    - cron: "0 1 * * *"
+    - cron: "0 2 * * *"
+    - cron: "0 3,15 * * *"
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: curated-iptv
+  cancel-in-progress: false
+
+env:
+  ENGINE_REPO: https://github.com/dearbulut/iptv.git
 
 jobs:
-  build:
+
+  epg:
+    name: EPG Grab
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '0 1 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone Dearbulut engine
+        run: |
+          git clone --depth 1 "$ENGINE_REPO" nexus
+
+      - name: Get EPG site list
+        id: sites
+        working-directory: nexus
+        run: |
+          node scripts/epg-sites.mjs matrix > /tmp/epg-matrix.json
+          cat /tmp/epg-matrix.json
+
+          echo "matrix=$(cat /tmp/epg-matrix.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Clone iptv-org EPG grabber
+        run: |
+          git clone --depth 1 -b master \
+            https://github.com/iptv-org/epg.git epg
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install EPG dependencies
+        working-directory: epg
+        run: |
+          npm install --no-audit --no-fund
+
+      - name: Grab EPG sources
+        run: |
+          set -e
+
+          mkdir -p guides
+
+          sites=$(node - <<'NODE'
+          const fs = require("fs");
+
+          const text = fs.readFileSync(
+            "nexus/config/epg-grab.yml",
+            "utf8"
+          );
+
+          const sites = [];
+          let current = null;
+
+          for (const raw of text.split(/\r?\n/)) {
+            const line = raw.replace(/\s+#.*$/, "").trimEnd();
+
+            if (!line.trim() || line.trim().startsWith("#")) {
+              continue;
+            }
+
+            if (line.trim() === "sites:") {
+              continue;
+            }
+
+            const item = /^\s*-\s*(.*)$/.exec(line);
+
+            if (item) {
+              if (current && current.site && current.enabled !== false) {
+                sites.push(current);
+              }
+
+              current = {};
+
+              if (item[1]) {
+                const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(item[1]);
+
+                if (m) {
+                  current[m[1]] = m[2].replace(/^['"]|['"]$/g, "");
+                }
+              }
+
+              continue;
+            }
+
+            if (current) {
+              const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
+                line.trim()
+              );
+
+              if (!m) {
+                continue;
+              }
+
+              let value = m[2].trim();
+
+              if (value === "true") {
+                value = true;
+              } else if (value === "false") {
+                value = false;
+              } else if (/^-?\d+$/.test(value)) {
+                value = Number(value);
+              } else {
+                value = value.replace(/^['"]|['"]$/g, "");
+              }
+
+              current[m[1]] = value;
+            }
+          }
+
+          if (current && current.site && current.enabled !== false) {
+            sites.push(current);
+          }
+
+          for (const site of sites) {
+            console.log(
+              [
+                site.site,
+                site.slug ||
+                  String(site.site).replace(/[^a-z0-9]+/gi, "-"),
+                site.timeout || 30000,
+                site.max_connections || 8
+              ].join("|")
+            );
+          }
+          NODE
+          )
+
+          while IFS="|" read -r site slug timeout connections; do
+            [ -z "$site" ] && continue
+
+            echo "========================================"
+            echo "EPG: $site"
+            echo "========================================"
+
+            rm -rf epg/out
+            mkdir -p epg/out
+
+            (
+              cd epg
+
+              npm run grab -- \
+                --sites="$site" \
+                --output=guide.xml \
+                --days=3 \
+                --timeout="$timeout" \
+                --maxConnections="$connections" \
+                --gzip
+            ) || true
+
+            if [ ! -s epg/guide.xml ]; then
+              echo "No guide produced for $site"
+              continue
+            fi
+
+            programmes=$(grep -c '<programme' epg/guide.xml || true)
+
+            if [ "${programmes:-0}" -lt 1 ]; then
+              echo "No programmes produced for $site"
+              continue
+            fi
+
+            if [ -f epg/guide.xml.gz ]; then
+              cp epg/guide.xml.gz \
+                "guides/${slug}.xml.gz"
+            else
+              gzip -9 -c epg/guide.xml > \
+                "guides/${slug}.xml.gz"
+            fi
+
+            echo "Saved $site"
+          done <<< "$sites"
+
+          find guides -type f -maxdepth 1 -print
+
+      - name: Publish EPG state
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        working-directory: nexus
+        run: |
+          cp -R ../guides ./guides
+
+          chmod +x scripts/publish-state.sh
+
+          ./scripts/publish-state.sh \
+            "epg: $(date -u +%FT%TZ)" \
+            guides/:epg/
+
+
+  discovery:
+    name: Discover Streams
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '0 2 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone Dearbulut engine
+        run: |
+          git clone --depth 1 "$ENGINE_REPO" nexus
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore discovered streams
+        run: |
+          mkdir -p nexus/config
+
+          if [ -f config/discovered.m3u ]; then
+            cp config/discovered.m3u \
+              nexus/config/discovered.m3u
+          else
+            printf '#EXTM3U\n' > nexus/config/discovered.m3u
+          fi
+
+      - name: Configure discovered source
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("config/sources.yml")
+          text = path.read_text()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Apply channel whitelist
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/aggregate/index.ts")
+          text = path.read_text()
+
+          marker = "await saveDataset(dataset);"
+
+          whitelist = r'''
+          const CURATED_NAMES = new Set([
+            "nbc",
+            "cbs",
+            "abc",
+            "fox",
+            "pbs",
+            "game show network",
+            "history",
+            "discovery",
+            "amc",
+            "fx",
+            "syfy",
+            "comedy central",
+            "paramount",
+            "paramount network",
+            "mtv",
+            "freeform",
+            "hallmark movies & more",
+            "hgtv",
+            "bravo",
+            "e!",
+            "lifetime",
+            "disney channel",
+            "nickelodeon",
+            "cartoon network",
+            "fxx",
+            "hbo",
+            "hbo hits",
+            "hbo movies",
+            "starz",
+            "starz cinema",
+            "starz comedy",
+            "cinemax",
+            "showtime",
+            "a&e",
+            "bloomberg tv",
+            "documentary+",
+            "paramount+ picks",
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny"
+          ]);
+
+          const normalizeCuratedName = (value: string): string =>
+            value
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, " ");
+
+          dataset.channels = dataset.channels.filter((channel) => {
+            const names = [
+              channel.name,
+              ...channel.alt_names,
+            ].map(normalizeCuratedName);
+
+            return names.some((name) => CURATED_NAMES.has(name));
+          });
+
+          dataset.orphans = [];
+
+          log.info(
+            `Curated whitelist: ${dataset.channels.length} channel(s)`
+          );
+          '''
+
+          if "const CURATED_NAMES = new Set([" in text:
+              print("Whitelist already patched")
+              raise SystemExit(0)
+
+          if marker not in text:
+              raise SystemExit(
+                  "Could not locate aggregate save marker"
+              )
+
+          text = text.replace(
+              marker,
+              whitelist + "\n          " + marker,
+              1
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Restore discovery rejection memory
+        working-directory: nexus
+        run: |
+          mkdir -p .data
+
+          git fetch origin state:state --depth=1 2>/dev/null || true
+
+          git show state:discovery.json \
+            > .data/discovery.json 2>/dev/null || true
+
+      - name: Install dependencies
+        working-directory: nexus
+        run: |
+          npm ci
+
+      - name: Verify ffprobe
+        run: |
+          ffprobe -version | head -1
+
+      - name: Aggregate curated dataset
+        working-directory: nexus
+        run: |
+          npm run cli -- aggregate
+
+      - name: Discover and verify replacements
+        working-directory: nexus
+        run: |
+          npm run cli -- discover \
+            --max-probes 800 \
+            --apply
+
+      - name: Copy discovered streams back
+        run: |
+          cp nexus/config/discovered.m3u \
+            config/discovered.m3u
+
+      - name: Commit discovered streams
+        run: |
+          if git diff --quiet -- config/discovered.m3u; then
+            echo "No new discovered streams"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add config/discovered.m3u
+
+          git commit \
+            -m "discovery: update curated streams"
+
+          git pull --rebase --quiet origin main || true
+
+          git push origin HEAD:main
+
+      - name: Persist discovery rejection memory
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        working-directory: nexus
+        run: |
+          if [ ! -f .data/discovery.json ]; then
+            exit 0
+          fi
+
+          chmod +x scripts/publish-state.sh
+
+          ./scripts/publish-state.sh \
+            "discovery: $(date -u +%FT%TZ)" \
+            .data/discovery.json:discovery.json
+
+
+  health:
+    name: Health Scan
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '0 3,15 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone Dearbulut engine
+        run: |
+          git clone --depth 1 "$ENGINE_REPO" nexus
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore discovered streams
+        run: |
+          mkdir -p nexus/config
+
+          if [ -f config/discovered.m3u ]; then
+            cp config/discovered.m3u \
+              nexus/config/discovered.m3u
+          else
+            printf '#EXTM3U\n' > nexus/config/discovered.m3u
+          fi
+
+      - name: Configure discovered source
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("config/sources.yml")
+          text = path.read_text()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Apply channel whitelist
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/aggregate/index.ts")
+          text = path.read_text()
+
+          marker = "await saveDataset(dataset);"
+
+          whitelist = r'''
+          const CURATED_NAMES = new Set([
+            "nbc",
+            "cbs",
+            "abc",
+            "fox",
+            "pbs",
+            "game show network",
+            "history",
+            "discovery",
+            "amc",
+            "fx",
+            "syfy",
+            "comedy central",
+            "paramount",
+            "paramount network",
+            "mtv",
+            "freeform",
+            "hallmark movies & more",
+            "hgtv",
+            "bravo",
+            "e!",
+            "lifetime",
+            "disney channel",
+            "nickelodeon",
+            "cartoon network",
+            "fxx",
+            "hbo",
+            "hbo hits",
+            "hbo movies",
+            "starz",
+            "starz cinema",
+            "starz comedy",
+            "cinemax",
+            "showtime",
+            "a&e",
+            "bloomberg tv",
+            "documentary+",
+            "paramount+ picks",
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny"
+          ]);
+
+          const normalizeCuratedName = (value: string): string =>
+            value
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, " ");
+
+          dataset.channels = dataset.channels.filter((channel) => {
+            const names = [
+              channel.name,
+              ...channel.alt_names,
+            ].map(normalizeCuratedName);
+
+            return names.some((name) => CURATED_NAMES.has(name));
+          });
+
+          dataset.orphans = [];
+
+          log.info(
+            `Curated whitelist: ${dataset.channels.length} channel(s)`
+          );
+          '''
+
+          if "const CURATED_NAMES = new Set([" in text:
+              print("Whitelist already patched")
+              raise SystemExit(0)
+
+          text = text.replace(
+              marker,
+              whitelist + "\n          " + marker,
+              1
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Restore health database
+        working-directory: nexus
+        run: |
+          mkdir -p .data
+
+          git fetch origin state:state --depth=1 2>/dev/null || true
+
+          git show state:health.json \
+            > .data/health.json 2>/dev/null || true
+
+      - name: Install dependencies
+        working-directory: nexus
+        run: |
+          npm ci
+
+      - name: Verify ffprobe
+        run: |
+          ffprobe -version | head -1
+
+      - name: Aggregate curated dataset
+        working-directory: nexus
+        run: |
+          npm run cli -- aggregate
+
+      - name: Probe health shard
+        working-directory: nexus
+        run: |
+          npm run cli -- health \
+            --shard-count 6 \
+            --shard-index ${{ matrix.shard }} \
+            --min-age 300
+
+      - name: Upload health shard
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-shard-${{ matrix.shard }}
+          path: nexus/.data/health.json
+          retention-days: 1
+
+
+  health-merge:
+    name: Merge Health
+    needs: health
+    if: always()
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Clone Dearbulut engine
+        run: |
+          git clone --depth 1 "$ENGINE_REPO" nexus
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
+          node-version: "22"
 
-      - name: Install dependencies
+      - name: Download health shards
+        uses: actions/download-artifact@v4
+        with:
+          path: shards
+          pattern: health-shard-*
+
+      - name: Merge health databases
+        working-directory: nexus
         run: |
-          python -m pip install --upgrade pip
-          pip install requests
+          mkdir -p .data
 
-      - name: Download source playlists and EPG
+          node scripts/merge-health.mjs \
+            ../shards \
+            .data/health.json
+
+      - name: Publish health state
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        working-directory: nexus
         run: |
-          curl -L --fail --retry 3 \
-            "https://raw.githubusercontent.com/iptv-org/iptv/master/streams/us.m3u" \
-            -o current-us.m3u
+          test -f .data/health.json
 
-          curl -L --fail --retry 3 \
-            "https://iptv-org.github.io/iptv/cities/usnyc.m3u" \
-            -o new-york.m3u
+          chmod +x scripts/publish-state.sh
 
-          curl -L --fail --retry 3 \
-            "https://iptv-org.github.io/iptv/cities/usbos.m3u" \
-            -o boston.m3u
+          ./scripts/publish-state.sh \
+            "health: $(date -u +%FT%TZ)" \
+            .data/health.json:health.json
 
-          curl -L --fail --retry 3 \
-            "https://vcicio.github.io/US-EPG/merged_epg.xml.gz" \
-            -o merged_epg.xml.gz
 
-      - name: Build playlist and guide
+  sync:
+    name: Sync and Deploy
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.schedule == '15 0,6,12,18 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone Dearbulut engine
         run: |
-          python <<'PY'
-          import gzip
-          import re
-          import urllib.request
-          import xml.etree.ElementTree as ET
+          git clone --depth 1 "$ENGINE_REPO" nexus
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore state
+        working-directory: nexus
+        run: |
+          mkdir -p .data
+
+          git fetch origin state:state --depth=1 2>/dev/null || true
+
+          git show state:health.json \
+            > .data/health.json 2>/dev/null || true
+
+          git show state:discovery.json \
+            > .data/discovery.json 2>/dev/null || true
+
+      - name: Restore discovered streams
+        run: |
+          mkdir -p nexus/config
+
+          if [ -f config/discovered.m3u ]; then
+            cp config/discovered.m3u \
+              nexus/config/discovered.m3u
+          else
+            printf '#EXTM3U\n' > nexus/config/discovered.m3u
+          fi
+
+      - name: Configure discovered source
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("config/sources.yml")
+          text = path.read_text()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Configure EPG state sources
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("config/epg-sources.yml")
+          text = path.read_text()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          replacements = {
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvtv-us.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/tvtv-us.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/pluto-tv.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/pluto-tv.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/plex-tv.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/plex-tv.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvplus-com-tr.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/tvplus-com-tr.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/digiturk-com-tr.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/digiturk-com-tr.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/turksatkablo-com-tr.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/turksatkablo-com-tr.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/mi-tv.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/mi-tv.xml.gz",
+
+              "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/programtv-onet-pl.xml.gz":
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/programtv-onet-pl.xml.gz",
+          }
+
+          for old, new in replacements.items():
+              text = text.replace(old, new)
+
+          path.write_text(text)
+          PY
+
+      - name: Apply channel whitelist
+        working-directory: nexus
+        run: |
+          python - <<'PY'
           from pathlib import Path
 
-          CHANNELS = [
-              "ABC",
-              "CBS",
-              "NBC",
-              "PBS",
-              "CNN",
-              "USA Network",
-              "TBS",
-              "FX",
-              "FXX",
-              "Paramount Network",
-              "Syfy",
-              "Bravo",
-              "E!",
-              "Freeform",
-              "Disney Channel",
-              "Nickelodeon",
-              "Cartoon Network",
-              "Comedy Central",
-              "TCM",
-              "Hallmark Channel",
-              "AMC",
-              "HGTV",
-              "Game Show Network",
-              "WBZ-TV",
-          ]
+          path = Path("src/aggregate/index.ts")
+          text = path.read_text()
 
-          FROZEN = {
-              "PBS": (
-                  "PBS.us@KQED",
-                  "PBS",
-                  "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8",
-              ),
-              "CNN": (
-                  "CNN.us@East",
-                  "CNN",
-                  "https://turnerlive.warnermediacdn.com/hls/live/586495/cnngo/cnn_slate/VIDEO_0_3564000.m3u8",
-              ),
-              "TBS": (
-                  "TBS.us@East",
-                  "TBS East",
-                  "https://turnerlive.warnermediacdn.com/hls/live/2023172/tbseast/slate/VIDEO_0_3564000.m3u8",
-              ),
-              "Syfy": (
-                  "SYFY.us@East",
-                  "Syfy",
-                  "http://23.237.104.106:8080/USA_SYFY/index.m3u8",
-              ),
-              "Bravo": (
-                  "Bravo.us@East",
-                  "Bravo",
-                  "http://fl2.moveonjoy.com/BRAVO/index.m3u8",
-              ),
-              "E!": (
-                  "E.us@East",
-                  "E!",
-                  "http://23.237.104.106:8080/USA_E/index.m3u8",
-              ),
-              "Freeform": (
-                  "Freeform.us@East",
-                  "Freeform",
-                  "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
-              ),
-              "Disney Channel": (
-                  "DisneyChannel.us@East",
-                  "Disney Channel",
-                  "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8",
-              ),
-              "Game Show Network": (
-                  "GameShowNetwork.us@SD",
-                  "Game Show Network",
-                  "https://a-cdn.klowdtv.com/live2/gsn_720p/playlist.m3u8",
-              ),
-          }
+          marker = "await saveDataset(dataset);"
 
-          CANDIDATES = {
-              "ABC": [
-                  (
-                      "WCVBDT1.us",
-                      "ABC 5 Boston WCVB",
-                      "https://aegis-cloudfront-1.tubi.video/c2e3094d-ad56-4c5f-9655-cd80df71fbab/playlist.m3u8",
-                  ),
-                  (
-                      "ABC.us@East",
-                      "ABC East",
-                      "http://190.11.225.124:5000/live/abc_hd/playlist.m3u8",
-                  ),
-              ],
-              "CBS": [
-                  (
-                      "CBS.us@East",
-                      "CBS East",
-                      "http://stream.cammonitorplus.net/1783/index.m3u8",
-                  ),
-                  (
-                      "CBS.us@East",
-                      "CBS East",
-                      "http://190.11.225.124:5000/live/cbs_hd/playlist.m3u8",
-                  ),
-                  (
-                      "CBS.us@East",
-                      "CBS East",
-                      "http://tvsen7.aynascope.net/cbs/index.m3u8",
-                  ),
-              ],
-              "NBC": [
-                  (
-                      "NBC.us@East",
-                      "NBC East",
-                      "http://stream.cammonitorplus.net/1785/index.m3u8",
-                  ),
-                  (
-                      "NBC.us@East",
-                      "NBC East",
-                      "http://190.11.225.124:5000/live/nbc_hd/playlist.m3u8",
-                  ),
-                  (
-                      "NBC.us@East",
-                      "NBC East",
-                      "http://170.254.17.2/NBC/index.m3u8",
-                  ),
-              ],
-              "USA Network": [
-                  (
-                      "USA.us@East",
-                      "USA Network East",
-                      "https://tvsen3.aynaott.com/dbbcY6NG/index.m3u8",
-                  ),
-              ],
-              "FX": [
-                  (
-                      "FX.us@East",
-                      "FX East",
-                      "http://23.237.104.106:8080/USA_FX/index.m3u8",
-                  ),
-              ],
-              "FXX": [
-                  (
-                      "FXX.us@East",
-                      "FXX East",
-                      "http://23.237.104.106:8080/USA_FXX/index.m3u8",
-                  ),
-              ],
-              "Paramount Network": [
-                  (
-                      "ParamountNetwork.us@East",
-                      "Paramount Network East",
-                      "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
-                  ),
-              ],
-              "Nickelodeon": [
-                  (
-                      "Nickelodeon.us@East",
-                      "Nickelodeon East",
-                      "https://sra72yz.s.gy/NICKELODEON_EAST_US.m3u8",
-                  ),
-                  (
-                      "Nickelodeon.us@East",
-                      "Nickelodeon East",
-                      "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8",
-                  ),
-              ],
-              "Cartoon Network": [
-                  (
-                      "CartoonNetwork.us@East",
-                      "Cartoon Network",
-                      "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
-                  ),
-              ],
-              "Comedy Central": [
-                  (
-                      "ComedyCentral.us@East",
-                      "Comedy Central East",
-                      "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8",
-                  ),
-                  (
-                      "ComedyCentral.us@East",
-                      "Comedy Central East",
-                      "https://tvsen3.aynaott.com/5fUWDMxZ/index.m3u8",
-                  ),
-              ],
-              "TCM": [
-                  (
-                      "TCM.us@East",
-                      "TCM East",
-                      "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
-                  ),
-              ],
-              "Hallmark Channel": [
-                  (
-                      "HallmarkChannel.us@East",
-                      "Hallmark Channel East",
-                      "http://23.237.104.106:8080/USA_HALLMARK/index.m3u8",
-                  ),
-                  (
-                      "HallmarkChannel.us@East",
-                      "Hallmark Channel East",
-                      "http://40.160.24.53/HALLMARK/index.m3u8",
-                  ),
-                  (
-                      "HallmarkChannel.us@East",
-                      "Hallmark Channel East",
-                      "http://fl2.moveonjoy.com/HALLMARK_CHANNEL/index.m3u8",
-                  ),
-              ],
-              "AMC": [
-                  (
-                      "AMC.us@EastHD",
-                      "AMC East",
-                      "http://23.239.31.26:8989/amc/index.m3u8",
-                  ),
-                  (
-                      "AMC.us@East",
-                      "AMC East",
-                      "http://190.11.225.124:5000/live/amc_hd/playlist.m3u8",
-                  ),
-                  (
-                      "AMC.us@East",
-                      "AMC East",
-                      "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8",
-                  ),
-              ],
-              "HGTV": [
-                  (
-                      "HGTV.us@East",
-                      "HGTV East",
-                      "http://212.102.60.231/HGTV/index.m3u8",
-                  ),
-              ],
-              "WBZ-TV": [
-                  (
-                      "CBS.(WBZ).Boston,.MA.us",
-                      "WBZ-TV Boston",
-                      "http://143.244.60.30/CBSEAST/index.m3u8",
-                  ),
-              ],
-          }
+          whitelist = r'''
+          const CURATED_NAMES = new Set([
+            "nbc",
+            "cbs",
+            "abc",
+            "fox",
+            "pbs",
+            "game show network",
+            "history",
+            "discovery",
+            "amc",
+            "fx",
+            "syfy",
+            "comedy central",
+            "paramount",
+            "paramount network",
+            "mtv",
+            "freeform",
+            "hallmark movies & more",
+            "hgtv",
+            "bravo",
+            "e!",
+            "lifetime",
+            "disney channel",
+            "nickelodeon",
+            "cartoon network",
+            "fxx",
+            "hbo",
+            "hbo hits",
+            "hbo movies",
+            "starz",
+            "starz cinema",
+            "starz comedy",
+            "cinemax",
+            "showtime",
+            "a&e",
+            "bloomberg tv",
+            "documentary+",
+            "paramount+ picks",
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny"
+          ]);
 
-          REQUIRED_IDS = {
-              "ABC": {"WCVBDT1.us", "ABC.us@East"},
-              "CBS": {"CBS.us@East"},
-              "NBC": {"NBC.us@East"},
-              "USA Network": {"USA.us@East"},
-              "FX": {"FX.us@East"},
-              "FXX": {"FXX.us@East"},
-              "Paramount Network": {"ParamountNetwork.us@East"},
-              "Nickelodeon": {"Nickelodeon.us@East"},
-              "Cartoon Network": {"CartoonNetwork.us@East"},
-              "Comedy Central": {"ComedyCentral.us@East"},
-              "TCM": {"TCM.us@East"},
-              "Hallmark Channel": {"HallmarkChannel.us@East"},
-              "AMC": {"AMC.us@East", "AMC.us@EastHD"},
-              "HGTV": {"HGTV.us@East"},
-              "WBZ-TV": {"CBS.(WBZ).Boston,.MA.us"},
-          }
+          const normalizeCuratedName = (value: string): string =>
+            value
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, " ");
 
-          FORBIDDEN = {
-              "ABC": {
-                  "ABCNews.us@East",
-                  "ABCNewsLive.us@SD",
-              },
-              "Hallmark Channel": {
-                  "HallmarkFamily.us@East",
-                  "HallmarkMystery.us@East",
-                  "HallmarkMoviesMysteries.us@East",
-              },
-          }
+          dataset.channels = dataset.channels.filter((channel) => {
+            const names = [
+              channel.name,
+              ...channel.alt_names,
+            ].map(normalizeCuratedName);
 
-          GUIDE_IDS = {
-              "ABC": ["WCVBDT1.us"],
-              "CBS": ["CBS.us@East"],
-              "NBC": ["NBC.us@East"],
-              "PBS": ["PBS.us@KQED"],
-              "CNN": ["CNN.us@East"],
-              "USA Network": ["USA.us@East"],
-              "TBS": ["TBS.us@East"],
-              "FX": ["FX.us@East"],
-              "FXX": ["FXX.us@East"],
-              "Paramount Network": ["ParamountNetwork.us@East"],
-              "Syfy": ["SYFY.us@East"],
-              "Bravo": ["Bravo.us@East"],
-              "E!": ["E.us@East"],
-              "Freeform": ["Freeform.us@East"],
-              "Disney Channel": ["DisneyChannel.us@East"],
-              "Nickelodeon": ["Nickelodeon.us@East"],
-              "Cartoon Network": ["CartoonNetwork.us@East"],
-              "Comedy Central": ["ComedyCentral.us@East"],
-              "TCM": ["TCM.us@East"],
-              "Hallmark Channel": ["HallmarkChannel.us@East"],
-              "AMC": ["AMC.us@East", "AMC.us@EastHD"],
-              "HGTV": ["HGTV.us@East"],
-              "Game Show Network": ["GameShowNetwork.us@SD"],
-              "WBZ-TV": ["CBS.(WBZ).Boston,.MA.us"],
-          }
+            return names.some((name) => CURATED_NAMES.has(name));
+          });
 
-          HEADERS = {
-              "User-Agent": "Mozilla/5.0",
-              "Accept": "*/*",
-          }
+          dataset.orphans = [];
 
-          def extract_attr(extinf, attr):
-              m = re.search(
-                  rf'{re.escape(attr)}="([^"]*)"',
-                  extinf
-              )
-              return m.group(1) if m else ""
+          log.info(
+            `Curated whitelist: ${dataset.channels.length} channel(s)`
+          );
+          '''
 
-          def parse_m3u(path):
-              entries = []
+          if "const CURATED_NAMES = new Set([" in text:
+              print("Whitelist already patched")
+              raise SystemExit(0)
 
-              lines = Path(path).read_text(
-                  encoding="utf-8",
-                  errors="ignore"
-              ).splitlines()
-
-              current = None
-
-              for line in lines:
-                  line = line.strip()
-
-                  if line.startswith("#EXTINF:"):
-                      current = line
-                  elif current and line and not line.startswith("#"):
-                      entries.append((current, line))
-                      current = None
-
-              return entries
-
-          sources = []
-
-          for filename in [
-              "current-us.m3u",
-              "new-york.m3u",
-              "boston.m3u",
-          ]:
-              sources.extend(parse_m3u(filename))
-
-          def fetch(url, timeout=15):
-              req = urllib.request.Request(
-                  url,
-                  headers=HEADERS
+          if marker not in text:
+              raise SystemExit(
+                  "Could not locate aggregate save marker"
               )
 
-              return urllib.request.urlopen(
-                  req,
-                  timeout=timeout
-              )
-
-          def test_stream(url):
-              try:
-                  with fetch(url) as r:
-                      status = getattr(r, "status", 200)
-
-                      content_type = (
-                          r.headers.get("Content-Type")
-                          or ""
-                      ).lower()
-
-                      data = r.read(32768)
-
-                      if status < 200 or status >= 400:
-                          return False, f"HTTP {status}"
-
-                      if not data:
-                          return False, "empty response"
-
-                      text = data.decode(
-                          "utf-8",
-                          errors="ignore"
-                      )
-
-                      if b"#EXTM3U" in data:
-                          if (
-                              "#EXTINF:" in text
-                              or "#EXT-X-STREAM-INF:" in text
-                              or "#EXT-X-TARGETDURATION:" in text
-                          ):
-                              return True, (
-                                  f"HLS {status} {content_type}"
-                              )
-
-                          return False, (
-                              "HLS playlist has no media entries"
-                          )
-
-                      if (
-                          "video" in content_type
-                          or "mpeg" in content_type
-                          or "octet-stream" in content_type
-                          or url.lower().endswith(".ts")
-                      ):
-                          return True, (
-                              f"media {status} {content_type}"
-                          )
-
-                      if (
-                          len(data) >= 1024
-                          and not text.lstrip().lower().startswith(
-                              (
-                                  "<html",
-                                  "<!doctype",
-                                  "<head",
-                              )
-                          )
-                      ):
-                          return True, (
-                              f"binary {status} {content_type}"
-                          )
-
-                      return False, (
-                          f"not a stream ({content_type})"
-                      )
-
-              except Exception as e:
-                  return False, str(e)
-
-          Path("public").mkdir(exist_ok=True)
-
-          playlist_lines = [
-              "#EXTM3U"
-          ]
-
-          selected = {}
-
-          print("=" * 60)
-          print("STRICT VERIFIED STREAM SELECTION")
-          print("=" * 60)
-
-          for channel in CHANNELS:
-              candidates = []
-
-              if channel in FROZEN:
-                  candidates.append(FROZEN[channel])
-
-              allowed_ids = REQUIRED_IDS.get(
-                  channel,
-                  set()
-              )
-
-              for extinf, url in sources:
-                  tvg_id = extract_attr(
-                      extinf,
-                      "tvg-id"
-                  )
-
-                  if tvg_id in allowed_ids:
-                      candidates.append(
-                          (
-                              tvg_id,
-                              channel,
-                              url,
-                          )
-                      )
-
-              candidates.extend(
-                  CANDIDATES.get(
-                      channel,
-                      []
-                  )
-              )
-
-              forbidden_ids = FORBIDDEN.get(
-                  channel,
-                  set()
-              )
-
-              found = None
-              seen_urls = set()
-
-              for tvg_id, display_name, url in candidates:
-                  if url in seen_urls:
-                      continue
-
-                  seen_urls.add(url)
-
-                  if (
-                      tvg_id not in allowed_ids
-                      and channel not in FROZEN
-                  ):
-                      continue
-
-                  if tvg_id in forbidden_ids:
-                      continue
-
-                  ok, reason = test_stream(url)
-
-                  if ok:
-                      found = (
-                          tvg_id,
-                          display_name,
-                          url,
-                          reason,
-                      )
-
-                      print(
-                          f"VERIFIED: {channel}\n"
-                          f"          ID:  {tvg_id}\n"
-                          f"          URL: {url}\n"
-                          f"          TEST: {reason}\n"
-                      )
-
-                      break
-
-                  print(
-                      f"FAILED: {channel}\n"
-                      f"        ID:  {tvg_id}\n"
-                      f"        URL: {url}\n"
-                      f"        TEST: {reason}\n"
-                  )
-
-              if not found:
-                  print(
-                      f"\nERROR: No verified stream found for {channel}"
-                  )
-                  print(
-                      "The workflow will NOT substitute "
-                      "an unrelated channel."
-                  )
-                  raise SystemExit(1)
-
-              tvg_id, display_name, url, reason = found
-
-              selected[channel] = (
-                  tvg_id,
-                  display_name,
-                  url,
-              )
-
-              playlist_lines.append(
-                  f'#EXTINF:-1 tvg-id="{tvg_id}" '
-                  f'group-title="USA",{display_name}'
-              )
-
-              playlist_lines.append(url)
-
-          Path("public/channels.m3u").write_text(
-              "\n".join(playlist_lines) + "\n",
-              encoding="utf-8"
+          text = text.replace(
+              marker,
+              whitelist + "\n          " + marker,
+              1
           )
 
-          playlist_text = Path(
-              "public/channels.m3u"
-          ).read_text(
-              encoding="utf-8"
-          )
-
-          if re.search(
-              r'^#EXTINF.*FOX',
-              playlist_text,
-              re.IGNORECASE | re.MULTILINE,
-          ):
-              print(
-                  "ERROR: FOX is still present in the playlist."
-              )
-              raise SystemExit(1)
-
-          if re.search(
-              r"Fox News|Fox Deportes|Fox Business|Fox Weather",
-              playlist_text,
-              re.IGNORECASE,
-          ):
-              print(
-                  "ERROR: Invalid FOX-branded channel detected."
-              )
-              raise SystemExit(1)
-
-          if re.search(
-              r"natgeo|nationalgeographic",
-              playlist_text,
-              re.IGNORECASE,
-          ):
-              print(
-                  "ERROR: Unrelated National Geographic "
-                  "stream detected."
-              )
-              raise SystemExit(1)
-
-          with gzip.open(
-              "merged_epg.xml.gz",
-              "rb"
-          ) as f:
-              epg_root = ET.fromstring(
-                  f.read()
-              )
-
-          channels_by_id = {
-              c.attrib.get("id"): c
-              for c in epg_root.findall("channel")
-          }
-
-          programs_by_channel = {}
-
-          for programme in epg_root.findall("programme"):
-              channel_id = programme.attrib.get(
-                  "channel"
-              )
-
-              if channel_id:
-                  programs_by_channel.setdefault(
-                      channel_id,
-                      []
-                  ).append(programme)
-
-          guide_root = ET.Element("tv")
-
-          for channel in CHANNELS:
-              if channel not in selected:
-                  continue
-
-              selected_id = selected[channel][0]
-
-              guide_ids = GUIDE_IDS.get(
-                  channel,
-                  [selected_id]
-              )
-
-              source_channel = None
-
-              for guide_id in guide_ids:
-                  if guide_id in channels_by_id:
-                      source_channel = channels_by_id[
-                          guide_id
-                      ]
-                      break
-
-              if source_channel is None:
-                  print(
-                      f"EPG MISSING: {channel}"
-                  )
-                  continue
-
-              new_channel = ET.SubElement(
-                  guide_root,
-                  "channel",
-                  {"id": selected_id},
-              )
-
-              display = source_channel.find(
-                  "display-name"
-              )
-
-              if display is not None:
-                  new_display = ET.SubElement(
-                      new_channel,
-                      "display-name"
-                  )
-                  new_display.text = display.text
-
-              for programme in programs_by_channel.get(
-                  source_channel.attrib.get("id"),
-                  []
-              ):
-                  new_programme = ET.fromstring(
-                      ET.tostring(programme)
-                  )
-
-                  new_programme.set(
-                      "channel",
-                      selected_id
-                  )
-
-                  guide_root.append(
-                      new_programme
-                  )
-
-          tree = ET.ElementTree(
-              guide_root
-          )
-
-          ET.indent(
-              tree,
-              space="  "
-          )
-
-          tree.write(
-              "public/guide.xml",
-              encoding="utf-8",
-              xml_declaration=True
-          )
-
-          print()
-          print(
-              f"Built {len(selected)} verified channels."
-          )
+          path.write_text(text)
           PY
+
+      - name: Install dependencies
+        working-directory: nexus
+        run: |
+          npm ci
+
+      - name: Verify ffprobe
+        run: |
+          ffprobe -version | head -1
+
+      - name: Aggregate
+        working-directory: nexus
+        env:
+          NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          npm run cli -- aggregate
+
+      - name: Build merged EPG
+        working-directory: nexus
+        env:
+          NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          npm run cli -- epg
+
+      - name: Build API and playlists
+        working-directory: nexus
+        env:
+          NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          npm run cli -- api --clean
+
+      - name: Create simple playlist URLs
+        run: |
+          mkdir -p nexus/public
+
+          if [ -f nexus/public/playlists/best.m3u ]; then
+            cp nexus/public/playlists/best.m3u \
+              nexus/public/channels.m3u
+          fi
+
+          if [ -f nexus/public/epg/guide.xml ]; then
+            cp nexus/public/epg/guide.xml \
+              nexus/public/guide.xml
+          fi
+
+      - name: Show curated result
+        working-directory: nexus
+        run: |
+          echo "========================================"
+          echo "CURATED CHANNELS"
+          echo "========================================"
+
+          grep '^#EXTINF' public/channels.m3u \
+            | sed 's/.*,//' \
+            || true
+
+          echo
+          echo "Channel count:"
+          grep -c '^#EXTINF' public/channels.m3u \
+            || true
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -752,7 +960,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: nexus/public
 
       - name: Deploy to GitHub Pages
         id: deployment
