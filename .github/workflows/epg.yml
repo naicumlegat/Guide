@@ -100,9 +100,17 @@ jobs:
           CANDIDATES = {
               "ABC": [
                   (
-                      "WABCTV.us",
-                      "ABC 7 New York WABC-TV",
-                      "https://t.freetv.fun/live/wabc-dt1.m3u8"
+                      "WCVBDT1.us",
+                      "ABC 5 Boston WCVB",
+                      "https://lnc-wcvb.tubi.video/playlist.m3u8"
+                  ),
+              ],
+
+              "WBZ-TV": [
+                  (
+                      "CBS.(WBZ).Boston,.MA.us",
+                      "WBZ-TV Boston",
+                      "http://143.244.60.30/CBSEAST/index.m3u8"
                   ),
               ],
 
@@ -277,7 +285,6 @@ jobs:
                       "HGTV East",
                       "http://212.102.60.231/HGTV/index.m3u8"
                   ),
-              ],
           }
 
           CHANNELS = [
@@ -309,10 +316,12 @@ jobs:
               ("AMC", "AMC", "Movies"),
               ("HGTV", "HGTV", "Lifestyle"),
               ("Game Show Network", "Game Show Network", "Entertainment"),
+              ("WBZ-TV", "WBZ-TV", "Broadcast"),
           ]
 
           REQUIRED_IDS = {
-              "ABC": {"WABCTV.us"},
+              "ABC": {"WCVBDT1.us"},
+              "WBZ-TV": {"CBS.(WBZ).Boston,.MA.us"},
               "CBS": {"CBS.us@East"},
               "NBC": {"NBC.us@East"},
               "The CW": {"WPIX.us"},
@@ -571,10 +580,11 @@ jobs:
               "AMC",
               "HGTV",
               "Game Show Network",
+              "WBZ-TV",
           ]
 
           GUIDE_IDS = {
-              "ABC": ["WABCTV.us"],
+              "ABC": ["WCVBDT1.us"],
               "CBS": ["CBS.us@East"],
               "NBC": ["NBC.us@East"],
               "The CW": ["WPIX.us"],
@@ -602,6 +612,7 @@ jobs:
               "AMC": ["AMC.us@East"],
               "HGTV": ["HGTV.us@East"],
               "Game Show Network": ["GameShowNetwork.us@SD"],
+              "WBZ-TV": ["CBS.(WBZ).Boston,.MA.us"],
           }
 
           with open(PLAYLIST, "r", encoding="utf-8") as f:
@@ -697,8 +708,8 @@ jobs:
           echo "Guide channels:    $GUIDE_CHANNEL_COUNT"
           echo "EPG programmes:    $PROGRAM_COUNT"
 
-          if [ "$CHANNEL_COUNT" -ne 28 ]; then
-            echo "ERROR: Expected exactly 28 playlist channels."
+          if [ "$CHANNEL_COUNT" -ne 29 ]; then
+            echo "ERROR: Expected exactly 29 playlist channels."
             exit 1
           fi
 
