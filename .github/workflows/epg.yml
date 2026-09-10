@@ -52,8 +52,7 @@ jobs:
           mkdir -p nexus/config
 
           if [ -f config/discovered.m3u ]; then
-            cp config/discovered.m3u \
-              nexus/config/discovered.m3u
+            cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
@@ -317,6 +316,7 @@ jobs:
           dataset_path = Path("nexus/.data/channels.json")
           config_path = Path("nexus/config/epg-grab.yml")
           output_dir = Path("epg/custom")
+
           output_dir.mkdir(parents=True, exist_ok=True)
 
           dataset = json.loads(dataset_path.read_text())
@@ -333,7 +333,9 @@ jobs:
           feed_by_channel = {}
 
           for channel in channels:
-              channel_id = str(channel.get("id", "")).strip()
+              channel_id = str(
+                  channel.get("id", "")
+              ).strip()
 
               feeds = set()
 
@@ -362,7 +364,11 @@ jobs:
               item = re.match(r"^\s*-\s*(.*)$", line)
 
               if item:
-                  if current and current.get("site") and current.get("enabled", True):
+                  if (
+                      current
+                      and current.get("site")
+                      and current.get("enabled", True)
+                  ):
                       sites.append(current)
 
                   current = {}
@@ -403,7 +409,11 @@ jobs:
 
                   current[key] = value
 
-          if current and current.get("site") and current.get("enabled", True):
+          if (
+              current
+              and current.get("site")
+              and current.get("enabled", True)
+          ):
               sites.append(current)
 
           by_site = {}
@@ -585,17 +595,25 @@ jobs:
             const item = /^\s*-\s*(.*)$/.exec(line);
 
             if (item) {
-              if (current && current.site && current.enabled !== false) {
+              if (
+                current &&
+                current.site &&
+                current.enabled !== false
+              ) {
                 sites.push(current);
               }
 
               current = {};
 
               if (item[1]) {
-                const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(item[1]);
+                const m =
+                  /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
+                    item[1]
+                  );
 
                 if (m) {
-                  current[m[1]] = m[2].replace(/^['"]|['"]$/g, "");
+                  current[m[1]] =
+                    m[2].replace(/^['"]|['"]$/g, "");
                 }
               }
 
@@ -603,9 +621,10 @@ jobs:
             }
 
             if (current) {
-              const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
-                line.trim()
-              );
+              const m =
+                /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
+                  line.trim()
+                );
 
               if (!m) {
                 continue;
@@ -620,14 +639,21 @@ jobs:
               } else if (/^-?\d+$/.test(value)) {
                 value = Number(value);
               } else {
-                value = value.replace(/^['"]|['"]$/g, "");
+                value = value.replace(
+                  /^['"]|['"]$/g,
+                  ""
+                );
               }
 
               current[m[1]] = value;
             }
           }
 
-          if (current && current.site && current.enabled !== false) {
+          if (
+            current &&
+            current.site &&
+            current.enabled !== false
+          ) {
             sites.push(current);
           }
 
@@ -636,7 +662,10 @@ jobs:
               [
                 site.site,
                 site.slug ||
-                  String(site.site).replace(/[^a-z0-9]+/gi, "-"),
+                  String(site.site).replace(
+                    /[^a-z0-9]+/gi,
+                    "-"
+                  ),
                 site.timeout || 30000,
                 site.max_connections || 8
               ].join("|")
@@ -744,8 +773,7 @@ jobs:
           mkdir -p nexus/config
 
           if [ -f config/discovered.m3u ]; then
-            cp config/discovered.m3u \
-              nexus/config/discovered.m3u
+            cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
@@ -771,6 +799,96 @@ jobs:
               "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
               url
           )
+
+          path.write_text(text)
+          PY
+
+      - name: Preserve stream feed identity
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/aggregate/sources.ts")
+          text = path.read_text()
+
+          if "function splitChannelFeed(" not in text:
+              marker = "interface JsonStreamShape {"
+
+              helper = r'''
+          function splitChannelFeed(value: string | null): {
+            channel: string | null;
+            feed: string | null;
+          } {
+            const valueTrimmed = value?.trim() ?? "";
+
+            if (!valueTrimmed) {
+              return {
+                channel: null,
+                feed: null,
+              };
+            }
+
+            const at = valueTrimmed.indexOf("@");
+
+            if (at <= 0 || at === valueTrimmed.length - 1) {
+              return {
+                channel: valueTrimmed,
+                feed: null,
+              };
+            }
+
+            return {
+              channel: valueTrimmed.slice(0, at),
+              feed: valueTrimmed.slice(at + 1),
+            };
+          }
+
+          '''
+
+              if marker not in text:
+                  raise SystemExit(
+                      "Could not locate sources.ts insertion point"
+                  )
+
+              text = text.replace(
+                  marker,
+                  helper + marker,
+                  1
+              )
+
+          old = """      const title = entry.title ?? entry.name ?? '';
+          push({
+            channel: entry.channel ?? entry.tvg_id ?? null,
+            feed: entry.feed ?? null,"""
+
+          new = """      const identity = splitChannelFeed(
+            entry.channel ?? entry.tvg_id ?? null
+          );
+
+          push({
+            channel: identity.channel,
+            feed: entry.feed ?? identity.feed,"""
+
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
+          const title = entry.title || entry.attributes['tvg-name'] || '';
+          push({
+            channel: tvgId,
+            feed: null,"""
+
+          new = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
+          const identity = splitChannelFeed(tvgId);
+          const title = entry.title || entry.attributes['tvg-name'] || '';
+
+          push({
+            channel: identity.channel,
+            feed: identity.feed,"""
+
+          if old in text:
+              text = text.replace(old, new, 1)
 
           path.write_text(text)
           PY
@@ -988,8 +1106,7 @@ jobs:
           mkdir -p nexus/config
 
           if [ -f config/discovered.m3u ]; then
-            cp config/discovered.m3u \
-              nexus/config/discovered.m3u
+            cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
@@ -1349,8 +1466,7 @@ jobs:
           mkdir -p nexus/config
 
           if [ -f config/discovered.m3u ]; then
-            cp config/discovered.m3u \
-              nexus/config/discovered.m3u
+            cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
@@ -1560,9 +1676,117 @@ jobs:
         run: |
           npm run cli -- api --clean
 
+      - name: Filter final playlist
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("nexus/public/playlists/best.m3u")
+
+          if not path.exists():
+              raise SystemExit(
+                  "Could not find generated best.m3u"
+              )
+
+          curated = {
+              "NBC",
+              "CBS",
+              "ABC",
+              "Fox",
+              "PBS",
+              "Game Show Network",
+              "History",
+              "Discovery",
+              "AMC",
+              "FX",
+              "SYFY",
+              "Comedy Central",
+              "Paramount",
+              "MTV",
+              "Freeform",
+              "Hallmark Movies & More",
+              "HGTV",
+              "Bravo",
+              "E!",
+              "Lifetime",
+              "Disney Channel",
+              "Nickelodeon",
+              "Cartoon Network",
+              "FXX",
+              "HBO",
+              "HBO Hits",
+              "HBO Movies",
+              "Starz",
+              "Starz Cinema",
+              "Starz Comedy",
+              "Cinemax",
+              "Showtime",
+              "A&E",
+              "Bloomberg TV",
+              "Documentary+",
+              "Paramount+ Picks",
+              "Paramount Movie Channel",
+              "The Jamie Oliver Channel",
+              "The Nanny",
+          }
+
+          lines = path.read_text().splitlines()
+
+          output = []
+
+          i = 0
+
+          while i < len(lines):
+              line = lines[i]
+
+              if not line.startswith("#EXTINF:"):
+                  output.append(line)
+                  i += 1
+                  continue
+
+              name = line.split(",", 1)[1].strip() if "," in line else ""
+
+              base_name = re.sub(
+                  r"\s+\(\d+p\)$",
+                  "",
+                  name
+              ).strip()
+
+              if base_name in curated:
+                  output.append(line)
+
+                  if i + 1 < len(lines):
+                      output.append(lines[i + 1])
+
+              i += 2
+
+          if not output or output[0] != "#EXTM3U":
+              output.insert(
+                  0,
+                  '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
+              )
+          else:
+              output[0] = (
+                  '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
+              )
+
+          path.write_text(
+              "\n".join(output) + "\n"
+          )
+
+          count = sum(
+              1
+              for line in output
+              if line.startswith("#EXTINF:")
+          )
+
+          print(f"Final curated playlist: {count} channel(s)")
+          PY
+
       - name: Create simple playlist URLs
         run: |
-          mkdir -p nexus/public
+          mkdir -p nexus/public/epg
 
           if [ -f nexus/public/playlists/best.m3u ]; then
             cp nexus/public/playlists/best.m3u \
@@ -1573,6 +1797,39 @@ jobs:
             cp nexus/public/epg/guide.xml \
               nexus/public/guide.xml
           fi
+
+          if [ -f nexus/public/epg/guide.xml.gz ]; then
+            cp nexus/public/epg/guide.xml.gz \
+              nexus/public/epg/guide.xml.gz
+          elif [ -f nexus/public/guide.xml ]; then
+            gzip -9 -c nexus/public/guide.xml \
+              > nexus/public/epg/guide.xml.gz
+          fi
+
+      - name: Verify final files
+        run: |
+          echo "========================================"
+          echo "FINAL PLAYLIST"
+          echo "========================================"
+
+          test -s nexus/public/channels.m3u
+
+          grep -c '^#EXTINF' \
+            nexus/public/channels.m3u
+
+          echo
+          echo "========================================"
+          echo "FINAL EPG"
+          echo "========================================"
+
+          test -s nexus/public/epg/guide.xml.gz
+
+          ls -lh \
+            nexus/public/epg/guide.xml.gz
+
+          echo
+          echo "EPG URL:"
+          echo "https://naicumlegat.github.io/Guide/epg/guide.xml.gz"
 
       - name: Show curated result
         working-directory: nexus
