@@ -34,20 +34,167 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create config directory
+        run: |
+          mkdir -p config
+
       - name: Clone Dearbulut engine
         run: |
           git clone --depth 1 "$ENGINE_REPO" nexus
-
-      - name: Get EPG site list
-        working-directory: nexus
-        run: |
-          node scripts/epg-sites.mjs matrix > /tmp/epg-matrix.json
-          cat /tmp/epg-matrix.json
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Restore discovered streams
+        run: |
+          mkdir -p nexus/config
+
+          if [ -f config/discovered.m3u ]; then
+            cp config/discovered.m3u \
+              nexus/config/discovered.m3u
+          else
+            printf '#EXTM3U\n' > nexus/config/discovered.m3u
+          fi
+
+      - name: Configure discovered source
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("config/sources.yml")
+          text = path.read_text()
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Apply channel whitelist
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/aggregate/index.ts")
+          text = path.read_text()
+
+          marker = "await saveDataset(dataset);"
+
+          whitelist = r'''
+          const CURATED_NAMES = new Set([
+            "nbc",
+            "cbs",
+            "abc",
+            "fox",
+            "pbs",
+            "game show network",
+            "history",
+            "discovery",
+            "amc",
+            "fx",
+            "syfy",
+            "comedy central",
+            "paramount",
+            "paramount network",
+            "mtv",
+            "freeform",
+            "hallmark movies & more",
+            "hgtv",
+            "bravo",
+            "e!",
+            "lifetime",
+            "disney channel",
+            "nickelodeon",
+            "cartoon network",
+            "fxx",
+            "hbo",
+            "hbo hits",
+            "hbo movies",
+            "starz",
+            "starz cinema",
+            "starz comedy",
+            "cinemax",
+            "showtime",
+            "a&e",
+            "bloomberg tv",
+            "documentary+",
+            "paramount+ picks",
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny"
+          ]);
+
+          const normalizeCuratedName = (value: string): string =>
+            value
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, " ");
+
+          dataset.channels = dataset.channels.filter((channel) => {
+            const names = [
+              channel.name,
+              ...channel.alt_names,
+            ].map(normalizeCuratedName);
+
+            const isCurated = names.some((name) =>
+              CURATED_NAMES.has(name)
+            );
+
+            if (!isCurated) return false;
+
+            if (names.includes("hgtv")) return true;
+
+            return channel.country === "US";
+          });
+
+          dataset.orphans = [];
+
+          log.info(
+            `Curated US whitelist: ${dataset.channels.length} channel(s)`
+          );
+          '''
+
+          if "const CURATED_NAMES = new Set([" in text:
+              print("Whitelist already patched")
+              raise SystemExit(0)
+
+          if marker not in text:
+              raise SystemExit(
+                  "Could not locate aggregate save marker"
+              )
+
+          text = text.replace(
+              marker,
+              whitelist + "\n          " + marker,
+              1
+          )
+
+          path.write_text(text)
+          PY
+
+      - name: Install Dearbulut dependencies
+        working-directory: nexus
+        run: |
+          npm ci
+
+      - name: Aggregate curated channel dataset
+        working-directory: nexus
+        run: |
+          npm run cli -- aggregate
 
       - name: Clone iptv-org EPG grabber
         run: |
@@ -59,234 +206,156 @@ jobs:
         run: |
           npm install --no-audit --no-fund
 
-      - name: Build USA EPG channel list
-        working-directory: epg
+      - name: Build curated EPG channel list
         run: |
           python - <<'PY'
+          import json
           from pathlib import Path
-          import re
           import xml.etree.ElementTree as ET
 
-          files = list(Path("sites").glob("**/*.channels.xml"))
+          dataset_path = Path("nexus/.data/channels.json")
+          output_path = Path("epg/curated.channels.xml")
+
+          if not dataset_path.exists():
+              raise SystemExit(
+                  f"Missing curated dataset: {dataset_path}"
+              )
+
+          dataset = json.loads(dataset_path.read_text())
 
           root = ET.Element("channels")
 
           seen = set()
-          total_before = 0
-          total_after = 0
+          channel_count = 0
+          guide_count = 0
 
-          for path in files:
-              try:
-                  tree = ET.parse(path)
-                  source_root = tree.getroot()
+          for channel in dataset.get("channels", []):
+              channel_id = str(channel.get("id", "")).strip()
 
-                  for channel in source_root.findall("channel"):
-                      total_before += 1
+              if not channel_id:
+                  continue
 
-                      xmltv_id = (
-                          channel.attrib.get("xmltv_id")
-                          or channel.attrib.get("id")
-                          or ""
-                      ).strip()
+              channel_count += 1
 
-                      if not re.search(
-                          r"\.us(?:@|$)",
-                          xmltv_id,
-                          re.IGNORECASE
-                      ):
-                          continue
+              for guide in channel.get("guides", []):
+                  site = str(guide.get("site", "")).strip()
+                  site_id = str(guide.get("site_id", "")).strip()
+                  lang = str(guide.get("lang", "")).strip()
+                  xmltv_id = channel_id
 
-                      site = channel.attrib.get("site", "").strip()
+                  if not site or not site_id:
+                      continue
 
-                      if not site:
-                          site = path.parent.name
+                  key = (
+                      site.lower(),
+                      site_id.lower(),
+                      lang.lower(),
+                      xmltv_id.lower(),
+                  )
 
-                      key = (
-                          site.lower(),
-                          xmltv_id.lower(),
-                          channel.attrib.get("site_id", "").strip().lower()
-                      )
+                  if key in seen:
+                      continue
 
-                      if key in seen:
-                          continue
+                  seen.add(key)
 
-                      seen.add(key)
+                  element = ET.SubElement(
+                      root,
+                      "channel",
+                      {
+                          "site": site,
+                          "site_id": site_id,
+                          "lang": lang or "en",
+                          "xmltv_id": xmltv_id,
+                      },
+                  )
 
-                      new_channel = ET.SubElement(
-                          root,
-                          "channel",
-                          dict(channel.attrib)
-                      )
+                  element.text = channel.get(
+                      "name",
+                      channel_id
+                  )
 
-                      new_channel.text = channel.text
-
-                      total_after += 1
-
-              except ET.ParseError as e:
-                  print(f"Skipping invalid XML: {path}: {e}")
-
-          tree = ET.ElementTree(root)
+                  guide_count += 1
 
           try:
-              ET.indent(tree, space="  ")
+              ET.indent(root, space="  ")
           except AttributeError:
               pass
 
+          tree = ET.ElementTree(root)
+
           tree.write(
-              "usa.channels.xml",
+              output_path,
               encoding="utf-8",
-              xml_declaration=True
+              xml_declaration=True,
           )
 
           print()
           print("========================================")
-          print("USA EPG CHANNEL LIST")
+          print("CURATED EPG CHANNEL LIST")
           print("========================================")
-          print(f"Source channel files: {len(files)}")
-          print(f"Channels checked: {total_before}")
-          print(f"USA channels kept: {total_after}")
-          print(f"Output: usa.channels.xml")
+          print(f"Curated Nexus channels: {channel_count}")
+          print(f"Guide mappings kept: {guide_count}")
+          print(f"Output: {output_path}")
           print("========================================")
           PY
 
           echo
-          echo "USA EPG channel count:"
-          grep -c '<channel ' usa.channels.xml || true
+          echo "EPG channel count:"
+          grep -c '<channel ' epg/curated.channels.xml || true
 
-      - name: Grab USA EPG sources
+          echo
+          echo "First EPG entries:"
+          grep '<channel ' epg/curated.channels.xml \
+            | head -30 || true
+
+      - name: Grab curated EPG
         run: |
           set -e
 
           mkdir -p guides
 
-          sites=$(node - <<'NODE'
-          const fs = require("fs");
+          rm -f epg/guide.xml
+          rm -f epg/guide.xml.gz
 
-          const text = fs.readFileSync(
-            "nexus/config/epg-grab.yml",
-            "utf8"
-          );
+          (
+            cd epg
 
-          const sites = [];
-          let current = null;
+            npm run grab -- \
+              --channels=curated.channels.xml \
+              --output=guide.xml \
+              --days=3 \
+              --timeout=30000 \
+              --maxConnections=8 \
+              --gzip
+          ) || true
 
-          for (const raw of text.split(/\r?\n/)) {
-            const line = raw.replace(/\s+#.*$/, "").trimEnd();
+          if [ ! -s epg/guide.xml ]; then
+            echo "No guide produced"
+            exit 0
+          fi
 
-            if (!line.trim() || line.trim().startsWith("#")) {
-              continue;
-            }
+          programmes=$(grep -c '<programme' epg/guide.xml || true)
 
-            if (line.trim() === "sites:") {
-              continue;
-            }
+          if [ "${programmes:-0}" -lt 1 ]; then
+            echo "No programmes produced"
+            exit 0
+          fi
 
-            const item = /^\s*-\s*(.*)$/.exec(line);
+          if [ -f epg/guide.xml.gz ]; then
+            cp epg/guide.xml.gz \
+              guides/curated.xml.gz
+          else
+            gzip -9 -c epg/guide.xml > \
+              guides/curated.xml.gz
+          fi
 
-            if (item) {
-              if (current && current.site && current.enabled !== false) {
-                sites.push(current);
-              }
-
-              current = {};
-
-              if (item[1]) {
-                const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(item[1]);
-
-                if (m) {
-                  current[m[1]] = m[2].replace(/^['"]|['"]$/g, "");
-                }
-              }
-
-              continue;
-            }
-
-            if (current) {
-              const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(
-                line.trim()
-              );
-
-              if (!m) {
-                continue;
-              }
-
-              let value = m[2].trim();
-
-              if (value === "true") {
-                value = true;
-              } else if (value === "false") {
-                value = false;
-              } else if (/^-?\d+$/.test(value)) {
-                value = Number(value);
-              } else {
-                value = value.replace(/^['"]|['"]$/g, "");
-              }
-
-              current[m[1]] = value;
-            }
-          }
-
-          if (current && current.site && current.enabled !== false) {
-            sites.push(current);
-          }
-
-          for (const site of sites) {
-            console.log(
-              [
-                site.site,
-                site.slug ||
-                  String(site.site).replace(/[^a-z0-9]+/gi, "-"),
-                site.timeout || 30000,
-                site.max_connections || 8
-              ].join("|")
-            );
-          }
-          NODE
-          )
-
-          while IFS="|" read -r site slug timeout connections; do
-            [ -z "$site" ] && continue
-
-            echo "========================================"
-            echo "EPG: $site"
-            echo "========================================"
-
-            rm -f epg/guide.xml epg/guide.xml.gz
-
-            (
-              cd epg
-
-              npm run grab -- \
-                --channels=usa.channels.xml \
-                --output=guide.xml \
-                --days=3 \
-                --timeout="$timeout" \
-                --maxConnections="$connections" \
-                --gzip
-            ) || true
-
-            if [ ! -s epg/guide.xml ]; then
-              echo "No guide produced for $site"
-              continue
-            fi
-
-            programmes=$(grep -c '<programme' epg/guide.xml || true)
-
-            if [ "${programmes:-0}" -lt 1 ]; then
-              echo "No programmes produced for $site"
-              continue
-            fi
-
-            if [ -f epg/guide.xml.gz ]; then
-              cp epg/guide.xml.gz \
-                "guides/${slug}.xml.gz"
-            else
-              gzip -9 -c epg/guide.xml > \
-                "guides/${slug}.xml.gz"
-            fi
-
-            echo "Saved $site"
-          done <<< "$sites"
+          echo
+          echo "========================================"
+          echo "CURATED EPG COMPLETE"
+          echo "========================================"
+          echo "Programmes: $programmes"
+          echo "Output: guides/curated.xml.gz"
+          echo "========================================"
 
       - name: Publish EPG state
         env:
@@ -301,7 +370,6 @@ jobs:
           ./scripts/publish-state.sh \
             "epg: $(date -u +%FT%TZ)" \
             guides/:epg/
-
 
   discovery:
     name: Discover Streams
@@ -542,7 +610,6 @@ jobs:
             "discovery: $(date -u +%FT%TZ)" \
             .data/discovery.json:discovery.json
 
-
   health:
     name: Health Scan
     if: >
@@ -751,7 +818,6 @@ jobs:
           path: nexus/.data/health.json
           retention-days: 1
 
-
   health-merge:
     name: Merge Health
     needs: health
@@ -799,7 +865,6 @@ jobs:
           ./scripts/publish-state.sh \
             "health: $(date -u +%FT%TZ)" \
             .data/health.json:health.json
-
 
   sync:
     name: Sync and Deploy
@@ -896,28 +961,28 @@ jobs:
 
           replacements = {
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvtv-us.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/tvtv-us.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/pluto-tv.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/pluto-tv.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/plex-tv.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/plex-tv.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvplus-com-tr.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/tvplus-com-tr.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/digiturk-com-tr.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/digiturk-com-tr.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/turksatkablo-com-tr.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/turksatkablo-com-tr.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/mi-tv.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/mi-tv.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
 
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/programtv-onet-pl.xml.gz":
-                  f"https://raw.githubusercontent.com/{repo}/state/epg/programtv-onet-pl.xml.gz",
+                  f"https://raw.githubusercontent.com/{repo}/state/epg/curated.xml.gz",
           }
 
           for old, new in replacements.items():
