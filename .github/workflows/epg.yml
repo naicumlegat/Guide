@@ -330,22 +330,30 @@ jobs:
               if channel.get("id")
           }
 
-          feed_by_channel = {}
+          curated_names = {}
 
           for channel in channels:
               channel_id = str(
                   channel.get("id", "")
               ).strip()
 
-              feeds = set()
+              if not channel_id:
+                  continue
 
-              for stream in channel.get("streams", []):
-                  feed = stream.get("feed")
+              names = {
+                  str(channel.get("name", "")).strip().lower(),
+                  *{
+                      str(name).strip().lower()
+                      for name in channel.get("alt_names", [])
+                      if name
+                  },
+              }
 
-                  if feed:
-                      feeds.add(str(feed).strip())
-
-              feed_by_channel[channel_id] = feeds
+              curated_names[channel_id] = {
+                  name
+                  for name in names
+                  if name
+              }
 
           sites = []
           current = None
@@ -435,8 +443,6 @@ jobs:
                   guide.get("lang") or "en"
               ).strip()
 
-              feed = guide.get("feed")
-
               if not channel_id:
                   continue
 
@@ -446,22 +452,10 @@ jobs:
               if not site or not site_id:
                   continue
 
-              desired_feeds = feed_by_channel.get(
-                  channel_id,
-                  set()
-              )
-
-              if desired_feeds:
-                  if feed:
-                      if str(feed).strip() not in desired_feeds:
-                          continue
-                  else:
-                      continue
-
+              # The guide only needs to belong to one of our
+              # curated channels. Do not require the guide feed
+              # to exactly match the stream feed.
               xmltv_id = channel_id
-
-              if feed:
-                  xmltv_id += "@" + str(feed).strip()
 
               key = (
                   site.lower(),
@@ -494,7 +488,7 @@ jobs:
 
           print()
           print("========================================")
-          print("FEED-SPECIFIC EPG CHANNEL LISTS")
+          print("CURATED EPG CHANNEL LISTS")
           print("========================================")
 
           total = 0
@@ -554,13 +548,13 @@ jobs:
               )
 
               print(
-                  f"{site}: {len(entries)} channel/feed mapping(s)"
+                  f"{site}: {len(entries)} curated channel mapping(s)"
               )
 
               total += len(entries)
 
           print("----------------------------------------")
-          print(f"Total feed mappings: {total}")
+          print(f"Total curated EPG mappings: {total}")
           print("========================================")
           PY
 
@@ -684,7 +678,7 @@ jobs:
             echo "========================================"
 
             if [ ! -s "$channels_file" ]; then
-              echo "No curated feed mappings for $site"
+              echo "No curated channel mappings for $site"
               continue
             fi
 
@@ -1775,13 +1769,20 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import json
           import re
 
           path = Path("nexus/public/playlists/best.m3u")
+          dataset_path = Path("nexus/.data/channels.json")
 
           if not path.exists():
               raise SystemExit(
                   "Could not find generated best.m3u"
+              )
+
+          if not dataset_path.exists():
+              raise SystemExit(
+                  "Could not find aggregated channels.json"
               )
 
           curated = {
@@ -1826,6 +1827,58 @@ jobs:
               "The Nanny",
           }
 
+          def normalize(value):
+              return re.sub(
+                  r"\s+",
+                  " ",
+                  str(value).strip().lower()
+              )
+
+          curated_names = {
+              normalize(name)
+              for name in curated
+          }
+
+          dataset = json.loads(
+              dataset_path.read_text()
+          )
+
+          curated_ids = set()
+
+          for channel in dataset.get("channels", []):
+              channel_id = str(
+                  channel.get("id", "")
+              ).strip()
+
+              if not channel_id:
+                  continue
+
+              names = [
+                  channel.get("name", ""),
+                  *channel.get("alt_names", []),
+              ]
+
+              names = {
+                  normalize(name)
+                  for name in names
+                  if name
+              }
+
+              if not names.intersection(curated_names):
+                  continue
+
+              if normalize(
+                  channel.get("name", "")
+              ) != "hgtv":
+                  if channel.get("country") != "US":
+                      continue
+
+              curated_ids.add(channel_id)
+
+          print(
+              f"Curated channel IDs: {len(curated_ids)}"
+          )
+
           lines = path.read_text().splitlines()
 
           output = []
@@ -1840,25 +1893,28 @@ jobs:
                   i += 1
                   continue
 
-              name = (
-                  line.split(",", 1)[1].strip()
-                  if "," in line
-                  else ""
+              tvg_id = ""
+
+              match = re.search(
+                  r'tvg-id="([^"]*)"',
+                  line
               )
 
-              base_name = re.sub(
-                  r"\s+\(\d+p\)$",
-                  "",
-                  name
-              ).strip()
+              if match:
+                  tvg_id = match.group(1).strip()
 
-              if base_name in curated:
+              if tvg_id in curated_ids:
                   output.append(line)
 
                   if i + 1 < len(lines):
                       output.append(lines[i + 1])
 
               i += 2
+
+          if not output:
+              raise SystemExit(
+                  "Whitelist removed every channel"
+              )
 
           output[0] = (
               '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
@@ -1874,7 +1930,9 @@ jobs:
               if line.startswith("#EXTINF:")
           )
 
-          print(f"Final curated playlist: {count} channel(s)")
+          print(
+              f"Final curated playlist: {count} channel(s)"
+          )
           PY
 
       - name: Create final EPG files
