@@ -119,15 +119,10 @@ jobs:
                   "Freeform",
                   "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
               ),
-              "Nickelodeon": (
-                  "Nickelodeon.us@East",
-                  "Nickelodeon",
-                  "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8",
-              ),
-              "Cartoon Network": (
-                  "CartoonNetwork.us@East",
-                  "Cartoon Network",
-                  "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
+              "Disney Channel": (
+                  "DisneyChannel.us@East",
+                  "Disney Channel",
+                  "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8",
               ),
               "Game Show Network": (
                   "GameShowNetwork.us@SD",
@@ -143,14 +138,13 @@ jobs:
                       "ABC 5 Boston WCVB",
                       "https://aegis-cloudfront-1.tubi.video/c2e3094d-ad56-4c5f-9655-cd80df71fbab/playlist.m3u8",
                   ),
-              ],
-              "WBZ-TV": [
                   (
-                      "CBS.(WBZ).Boston,.MA.us",
-                      "WBZ-TV Boston",
-                      "http://143.244.60.30/CBSEAST/index.m3u8",
+                      "ABC.us@East",
+                      "ABC East",
+                      "http://190.11.225.124:5000/live/abc_hd/playlist.m3u8",
                   ),
               ],
+
               "CBS": [
                   (
                       "CBS.us@East",
@@ -168,6 +162,7 @@ jobs:
                       "http://tvsen7.aynascope.net/cbs/index.m3u8",
                   ),
               ],
+
               "NBC": [
                   (
                       "NBC.us@East",
@@ -185,6 +180,7 @@ jobs:
                       "http://170.254.17.2/NBC/index.m3u8",
                   ),
               ],
+
               "TNT": [
                   (
                       "TNT.us@East",
@@ -192,6 +188,7 @@ jobs:
                       "http://170.254.18.106/TNT/index.m3u8",
                   ),
               ],
+
               "TBS": [
                   (
                       "TBS.us@East",
@@ -199,6 +196,23 @@ jobs:
                       "http://143.244.60.30/TBS/index.m3u8",
                   ),
               ],
+
+              "USA Network": [
+                  (
+                      "USA.us@East",
+                      "USA Network East",
+                      "https://tvsen3.aynaott.com/dbbcY6NG/index.m3u8",
+                  ),
+              ],
+
+              "FX": [
+                  (
+                      "FX.us@East",
+                      "FX East",
+                      "http://23.237.104.106:8080/USA_FX/index.m3u8",
+                  ),
+              ],
+
               "FXX": [
                   (
                       "FXX.us@East",
@@ -206,6 +220,7 @@ jobs:
                       "http://23.237.104.106:8080/USA_FXX/index.m3u8",
                   ),
               ],
+
               "Paramount Network": [
                   (
                       "ParamountNetwork.us@East",
@@ -213,20 +228,41 @@ jobs:
                       "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
                   ),
               ],
-              "Disney Channel": [
+
+              "Nickelodeon": [
                   (
-                      "DisneyChannel.us@East",
-                      "Disney Channel East",
-                      "https://e3.thetvapp.to/hls/DisneyChannelEast/index.m3u8",
+                      "Nickelodeon.us@East",
+                      "Nickelodeon East",
+                      "https://sra72yz.s.gy/NICKELODEON_EAST_US.m3u8",
+                  ),
+                  (
+                      "Nickelodeon.us@East",
+                      "Nickelodeon East",
+                      "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8",
                   ),
               ],
+
+              "Cartoon Network": [
+                  (
+                      "CartoonNetwork.us@East",
+                      "Cartoon Network",
+                      "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
+                  ),
+              ],
+
               "Comedy Central": [
                   (
                       "ComedyCentral.us@East",
                       "Comedy Central East",
                       "http://23.237.104.106:8080/USA_COMEDY_CENTRAL/index.m3u8",
                   ),
+                  (
+                      "ComedyCentral.us@East",
+                      "Comedy Central East",
+                      "https://tvsen3.aynaott.com/5fUWDMxZ/index.m3u8",
+                  ),
               ],
+
               "TCM": [
                   (
                       "TCM.us@East",
@@ -234,6 +270,7 @@ jobs:
                       "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
                   ),
               ],
+
               "Hallmark Channel": [
                   (
                       "HallmarkChannel.us@East",
@@ -245,14 +282,31 @@ jobs:
                       "Hallmark Channel East",
                       "http://40.160.24.53/HALLMARK/index.m3u8",
                   ),
+                  (
+                      "HallmarkChannel.us@East",
+                      "Hallmark Channel East",
+                      "http://fl2.moveonjoy.com/HALLMARK_CHANNEL/index.m3u8",
+                  ),
               ],
+
               "AMC": [
+                  (
+                      "AMC.us@EastHD",
+                      "AMC East",
+                      "http://23.239.31.26:8989/amc/index.m3u8",
+                  ),
+                  (
+                      "AMC.us@East",
+                      "AMC East",
+                      "http://190.11.225.124:5000/live/amc_hd/playlist.m3u8",
+                  ),
                   (
                       "AMC.us@East",
                       "AMC East",
                       "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8",
                   ),
               ],
+
               "HGTV": [
                   (
                       "HGTV.us@East",
@@ -260,23 +314,34 @@ jobs:
                       "http://212.102.60.231/HGTV/index.m3u8",
                   ),
               ],
+
+              "WBZ-TV": [
+                  (
+                      "CBS.(WBZ).Boston,.MA.us",
+                      "WBZ-TV Boston",
+                      "http://143.244.60.30/CBSEAST/index.m3u8",
+                  ),
+              ],
           }
 
           REQUIRED_IDS = {
-              "ABC": {"WCVBDT1.us"},
-              "WBZ-TV": {"CBS.(WBZ).Boston,.MA.us"},
+              "ABC": {"WCVBDT1.us", "ABC.us@East"},
               "CBS": {"CBS.us@East"},
               "NBC": {"NBC.us@East"},
               "TNT": {"TNT.us@East"},
               "TBS": {"TBS.us@East"},
+              "USA Network": {"USA.us@East"},
+              "FX": {"FX.us@East"},
               "FXX": {"FXX.us@East"},
               "Paramount Network": {"ParamountNetwork.us@East"},
-              "Disney Channel": {"DisneyChannel.us@East"},
+              "Nickelodeon": {"Nickelodeon.us@East"},
+              "Cartoon Network": {"CartoonNetwork.us@East"},
               "Comedy Central": {"ComedyCentral.us@East"},
               "TCM": {"TCM.us@East"},
               "Hallmark Channel": {"HallmarkChannel.us@East"},
-              "AMC": {"AMC.us@East"},
+              "AMC": {"AMC.us@East", "AMC.us@EastHD"},
               "HGTV": {"HGTV.us@East"},
+              "WBZ-TV": {"CBS.(WBZ).Boston,.MA.us"},
           }
 
           FORBIDDEN = {
@@ -313,7 +378,7 @@ jobs:
               "Comedy Central": ["ComedyCentral.us@East"],
               "TCM": ["TCM.us@East"],
               "Hallmark Channel": ["HallmarkChannel.us@East"],
-              "AMC": ["AMC.us@East"],
+              "AMC": ["AMC.us@East", "AMC.us@EastHD"],
               "HGTV": ["HGTV.us@East"],
               "Game Show Network": ["GameShowNetwork.us@SD"],
               "WBZ-TV": ["CBS.(WBZ).Boston,.MA.us"],
@@ -359,9 +424,7 @@ jobs:
               "new-york.m3u",
               "boston.m3u",
           ]:
-              sources.extend(
-                  parse_m3u(filename)
-              )
+              sources.extend(parse_m3u(filename))
 
           def fetch(url, timeout=15):
               req = urllib.request.Request(
@@ -377,11 +440,7 @@ jobs:
           def test_stream(url):
               try:
                   with fetch(url) as r:
-                      status = getattr(
-                          r,
-                          "status",
-                          200
-                      )
+                      status = getattr(r, "status", 200)
 
                       content_type = (
                           r.headers.get("Content-Type")
@@ -405,6 +464,7 @@ jobs:
                           if (
                               "#EXTINF:" in text
                               or "#EXT-X-STREAM-INF:" in text
+                              or "#EXT-X-TARGETDURATION:" in text
                           ):
                               return True, (
                                   f"HLS {status} {content_type}"
@@ -430,7 +490,7 @@ jobs:
                               (
                                   "<html",
                                   "<!doctype",
-                                  "<head"
+                                  "<head",
                               )
                           )
                       ):
@@ -445,9 +505,7 @@ jobs:
               except Exception as e:
                   return False, str(e)
 
-          Path("public").mkdir(
-              exist_ok=True
-          )
+          Path("public").mkdir(exist_ok=True)
 
           playlist_lines = [
               "#EXTM3U"
@@ -463,9 +521,7 @@ jobs:
               candidates = []
 
               if channel in FROZEN:
-                  candidates.append(
-                      FROZEN[channel]
-                  )
+                  candidates.append(FROZEN[channel])
 
               allowed_ids = REQUIRED_IDS.get(
                   channel,
@@ -500,8 +556,14 @@ jobs:
               )
 
               found = None
+              seen_urls = set()
 
               for tvg_id, display_name, url in candidates:
+                  if url in seen_urls:
+                      continue
+
+                  seen_urls.add(url)
+
                   if (
                       tvg_id not in allowed_ids
                       and channel not in FROZEN
@@ -520,6 +582,14 @@ jobs:
                           url,
                           reason,
                       )
+
+                      print(
+                          f"VERIFIED: {channel}\n"
+                          f"          ID:  {tvg_id}\n"
+                          f"          URL: {url}\n"
+                          f"          TEST: {reason}\n"
+                      )
+
                       break
 
                   print(
@@ -553,13 +623,6 @@ jobs:
               )
 
               playlist_lines.append(url)
-
-              print(
-                  f"VERIFIED: {channel}\n"
-                  f"          ID:  {tvg_id}\n"
-                  f"          URL: {url}\n"
-                  f"          TEST: {reason}\n"
-              )
 
           Path("public/channels.m3u").write_text(
               "\n".join(playlist_lines) + "\n",
@@ -618,9 +681,7 @@ jobs:
 
           programs_by_channel = {}
 
-          for programme in epg_root.findall(
-              "programme"
-          ):
+          for programme in epg_root.findall("programme"):
               channel_id = programme.attrib.get(
                   "channel"
               )
