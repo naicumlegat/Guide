@@ -1507,6 +1507,31 @@ jobs:
           git show state:discovery.json \
             > .data/discovery.json 2>/dev/null || true
 
+      - name: Restore EPG state
+        working-directory: nexus
+        run: |
+          mkdir -p epg-state
+
+          git fetch origin state:state --depth=1 2>/dev/null || true
+
+          for file in \
+            tvtv-us.xml.gz \
+            pluto-tv.xml.gz \
+            plex-tv.xml.gz \
+            tvplus-com-tr.xml.gz \
+            digiturk-com-tr.xml.gz \
+            turksatkablo-com-tr.xml.gz \
+            mi-tv.xml.gz \
+            programtv-onet-pl.xml.gz
+          do
+            if git cat-file -e "state:epg/$file" 2>/dev/null; then
+              git show "state:epg/$file" > "epg-state/$file"
+              echo "Restored epg/$file"
+            else
+              echo "No state EPG file: $file"
+            fi
+          done
+
       - name: Restore discovered streams
         run: |
           mkdir -p nexus/config
@@ -1718,7 +1743,7 @@ jobs:
         working-directory: nexus
         env:
           NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
-          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.event.repository.name }}
+          NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
         run: |
           npm run cli -- api --clean
 
@@ -1834,61 +1859,120 @@ jobs:
 
           mkdir -p nexus/public/epg
 
-          echo "Searching for generated guide.xml..."
+          echo "========================================"
+          echo "BUILD FINAL XMLTV EPG"
+          echo "========================================"
 
-          find nexus -type f \
-            \( -name "guide.xml" -o -name "guide.xml.gz" \) \
-            -print || true
+          python - <<'PY'
+          import gzip
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
 
-          GUIDE_XML=""
+          source_dir = Path("epg-state")
+          output_xml = Path("nexus/public/guide.xml")
+          output_gz = Path("nexus/public/epg/guide.xml.gz")
 
-          if [ -s nexus/public/guide.xml ]; then
-            GUIDE_XML="nexus/public/guide.xml"
-          elif [ -s nexus/public/epg/guide.xml ]; then
-            GUIDE_XML="nexus/public/epg/guide.xml"
-          elif [ -s nexus/guide.xml ]; then
-            GUIDE_XML="nexus/guide.xml"
-          elif [ -s nexus/.data/guide.xml ]; then
-            GUIDE_XML="nexus/.data/guide.xml"
-          fi
+          files = sorted(source_dir.glob("*.xml.gz"))
 
-          if [ -n "$GUIDE_XML" ]; then
-            echo "Using EPG: $GUIDE_XML"
+          if not files:
+              raise SystemExit(
+                  "ERROR: No EPG state files were restored."
+              )
 
-            cp "$GUIDE_XML" \
-              nexus/public/guide.xml
+          print("EPG state files:")
+          for file in files:
+              print(f"  {file}")
 
-            cp "$GUIDE_XML" \
-              nexus/public/epg/guide.xml
+          root = ET.Element(
+              "tv",
+              {
+                  "generator-info-name": "Guide Curated IPTV",
+              },
+          )
 
-            gzip -9 -c \
-              "$GUIDE_XML" \
-              > nexus/public/epg/guide.xml.gz
+          channel_ids = set()
+          programme_keys = set()
 
-          elif [ -s nexus/public/guide.xml.gz ]; then
-            echo "Using existing compressed EPG"
+          for file in files:
+              print(f"Reading {file}")
 
-            cp nexus/public/guide.xml.gz \
-              nexus/public/epg/guide.xml.gz
+              with gzip.open(file, "rb") as fh:
+                  source_root = ET.parse(fh).getroot()
 
-            gzip -dc \
-              nexus/public/epg/guide.xml.gz \
-              > nexus/public/guide.xml
+              for channel in source_root.findall("channel"):
+                  channel_id = channel.get("id")
 
-          elif [ -s nexus/public/epg/guide.xml.gz ]; then
-            echo "Using existing compressed EPG"
+                  if not channel_id:
+                      continue
 
-            gzip -dc \
-              nexus/public/epg/guide.xml.gz \
-              > nexus/public/guide.xml
+                  if channel_id in channel_ids:
+                      continue
 
-          else
-            echo "ERROR: No guide.xml or guide.xml.gz was generated."
-            echo
-            echo "Files under nexus/public:"
-            find nexus/public -maxdepth 4 -type f -print || true
-            exit 1
-          fi
+                  channel_ids.add(channel_id)
+                  root.append(channel)
+
+              for programme in source_root.findall("programme"):
+                  key = (
+                      programme.get("channel"),
+                      programme.get("start"),
+                      programme.get("stop"),
+                      "".join(programme.itertext()),
+                  )
+
+                  if key in programme_keys:
+                      continue
+
+                  programme_keys.add(key)
+                  root.append(programme)
+
+          if not channel_ids:
+              raise SystemExit(
+                  "ERROR: Restored EPG files contained no channels."
+              )
+
+          if not programme_keys:
+              raise SystemExit(
+                  "ERROR: Restored EPG files contained no programmes."
+              )
+
+          try:
+              ET.indent(root, space="  ")
+          except AttributeError:
+              pass
+
+          output_xml.parent.mkdir(
+              parents=True,
+              exist_ok=True
+          )
+
+          ET.ElementTree(root).write(
+              output_xml,
+              encoding="utf-8",
+              xml_declaration=True,
+          )
+
+          output_gz.parent.mkdir(
+              parents=True,
+              exist_ok=True
+          )
+
+          with output_xml.open("rb") as source:
+              with gzip.open(
+                  output_gz,
+                  "wb",
+                  compresslevel=9
+              ) as target:
+                  target.write(source.read())
+
+          print()
+          print(f"EPG channels: {len(channel_ids)}")
+          print(f"EPG programmes: {len(programme_keys)}")
+          print(f"XMLTV: {output_xml}")
+          print(f"GZIP: {output_gz}")
+          PY
+
+          cp nexus/public/guide.xml \
+            nexus/public/epg/guide.xml
 
           echo
           echo "Final EPG files:"
