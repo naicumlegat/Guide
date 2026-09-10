@@ -67,7 +67,6 @@ jobs:
               "PBS",
               "CNN",
               "USA Network",
-              "TNT",
               "TBS",
               "FX",
               "FXX",
@@ -144,7 +143,6 @@ jobs:
                       "http://190.11.225.124:5000/live/abc_hd/playlist.m3u8",
                   ),
               ],
-
               "CBS": [
                   (
                       "CBS.us@East",
@@ -162,7 +160,6 @@ jobs:
                       "http://tvsen7.aynascope.net/cbs/index.m3u8",
                   ),
               ],
-
               "NBC": [
                   (
                       "NBC.us@East",
@@ -180,15 +177,6 @@ jobs:
                       "http://170.254.17.2/NBC/index.m3u8",
                   ),
               ],
-
-              "TNT": [
-                  (
-                      "TNT.us@East",
-                      "TNT East",
-                      "http://170.254.18.106/TNT/index.m3u8",
-                  ),
-              ],
-
               "TBS": [
                   (
                       "TBS.us@East",
@@ -196,7 +184,6 @@ jobs:
                       "http://143.244.60.30/TBS/index.m3u8",
                   ),
               ],
-
               "USA Network": [
                   (
                       "USA.us@East",
@@ -204,7 +191,6 @@ jobs:
                       "https://tvsen3.aynaott.com/dbbcY6NG/index.m3u8",
                   ),
               ],
-
               "FX": [
                   (
                       "FX.us@East",
@@ -212,7 +198,6 @@ jobs:
                       "http://23.237.104.106:8080/USA_FX/index.m3u8",
                   ),
               ],
-
               "FXX": [
                   (
                       "FXX.us@East",
@@ -220,7 +205,6 @@ jobs:
                       "http://23.237.104.106:8080/USA_FXX/index.m3u8",
                   ),
               ],
-
               "Paramount Network": [
                   (
                       "ParamountNetwork.us@East",
@@ -228,7 +212,6 @@ jobs:
                       "https://fl1.moveonjoy.com/PARAMOUNT_NETWORK/index.m3u8",
                   ),
               ],
-
               "Nickelodeon": [
                   (
                       "Nickelodeon.us@East",
@@ -241,7 +224,6 @@ jobs:
                       "http://23.237.104.106:8080/USA_NICKELODEON/index.m3u8",
                   ),
               ],
-
               "Cartoon Network": [
                   (
                       "CartoonNetwork.us@East",
@@ -249,7 +231,6 @@ jobs:
                       "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
                   ),
               ],
-
               "Comedy Central": [
                   (
                       "ComedyCentral.us@East",
@@ -262,7 +243,6 @@ jobs:
                       "https://tvsen3.aynaott.com/5fUWDMxZ/index.m3u8",
                   ),
               ],
-
               "TCM": [
                   (
                       "TCM.us@East",
@@ -270,7 +250,6 @@ jobs:
                       "http://main.light-ott.net:80/play/live.php?mac=A0:BB:3E:00:01:FC&stream=855460&extension=ts",
                   ),
               ],
-
               "Hallmark Channel": [
                   (
                       "HallmarkChannel.us@East",
@@ -288,7 +267,6 @@ jobs:
                       "http://fl2.moveonjoy.com/HALLMARK_CHANNEL/index.m3u8",
                   ),
               ],
-
               "AMC": [
                   (
                       "AMC.us@EastHD",
@@ -306,7 +284,6 @@ jobs:
                       "https://fl1.moveonjoy.com/AMC_NETWORK/index.m3u8",
                   ),
               ],
-
               "HGTV": [
                   (
                       "HGTV.us@East",
@@ -314,7 +291,6 @@ jobs:
                       "http://212.102.60.231/HGTV/index.m3u8",
                   ),
               ],
-
               "WBZ-TV": [
                   (
                       "CBS.(WBZ).Boston,.MA.us",
@@ -328,7 +304,6 @@ jobs:
               "ABC": {"WCVBDT1.us", "ABC.us@East"},
               "CBS": {"CBS.us@East"},
               "NBC": {"NBC.us@East"},
-              "TNT": {"TNT.us@East"},
               "TBS": {"TBS.us@East"},
               "USA Network": {"USA.us@East"},
               "FX": {"FX.us@East"},
@@ -363,7 +338,6 @@ jobs:
               "PBS": ["PBS.us@KQED"],
               "CNN": ["CNN.us@East"],
               "USA Network": ["USA.us@East"],
-              "TNT": ["TNT.us@East"],
               "TBS": ["TBS.us@East"],
               "FX": ["FX.us@East"],
               "FXX": ["FXX.us@East"],
