@@ -39,23 +39,20 @@ jobs:
           git clone --depth 1 "$ENGINE_REPO" nexus
 
       - name: Get EPG site list
-        id: sites
         working-directory: nexus
         run: |
           node scripts/epg-sites.mjs matrix > /tmp/epg-matrix.json
           cat /tmp/epg-matrix.json
 
-          echo "matrix=$(cat /tmp/epg-matrix.json)" >> "$GITHUB_OUTPUT"
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - name: Clone iptv-org EPG grabber
         run: |
           git clone --depth 1 -b master \
             https://github.com/iptv-org/epg.git epg
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       - name: Install EPG dependencies
         working-directory: epg
@@ -198,8 +195,6 @@ jobs:
             echo "Saved $site"
           done <<< "$sites"
 
-          find guides -type f -maxdepth 1 -print
-
       - name: Publish EPG state
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -226,6 +221,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Create config directory
+        run: |
+          mkdir -p config
 
       - name: Clone Dearbulut engine
         run: |
@@ -400,6 +399,8 @@ jobs:
 
       - name: Copy discovered streams back
         run: |
+          mkdir -p config
+
           cp nexus/config/discovered.m3u \
             config/discovered.m3u
 
@@ -457,6 +458,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Create config directory
+        run: |
+          mkdir -p config
 
       - name: Clone Dearbulut engine
         run: |
@@ -584,6 +589,11 @@ jobs:
               print("Whitelist already patched")
               raise SystemExit(0)
 
+          if marker not in text:
+              raise SystemExit(
+                  "Could not locate aggregate save marker"
+              )
+
           text = text.replace(
               marker,
               whitelist + "\n          " + marker,
@@ -693,6 +703,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Create config directory
+        run: |
+          mkdir -p config
 
       - name: Clone Dearbulut engine
         run: |
