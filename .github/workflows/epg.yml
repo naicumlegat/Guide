@@ -59,6 +59,72 @@ jobs:
         run: |
           npm install --no-audit --no-fund
 
+      - name: Restrict EPG channels to USA
+        working-directory: epg
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import xml.etree.ElementTree as ET
+
+          files = list(Path("sites").glob("**/*.channels.xml"))
+
+          total_before = 0
+          total_after = 0
+          files_changed = 0
+
+          for path in files:
+              try:
+                  tree = ET.parse(path)
+                  root = tree.getroot()
+
+                  removed = 0
+                  kept = 0
+
+                  for channel in list(root.findall("channel")):
+                      xmltv_id = (
+                          channel.attrib.get("xmltv_id")
+                          or channel.attrib.get("id")
+                          or ""
+                      ).strip()
+
+                      total_before += 1
+
+                      if re.search(r"\.us(?:@|$)", xmltv_id, re.IGNORECASE):
+                          kept += 1
+                          total_after += 1
+                      else:
+                          root.remove(channel)
+                          removed += 1
+
+                  if removed:
+                      tree.write(
+                          path,
+                          encoding="utf-8",
+                          xml_declaration=True
+                      )
+                      files_changed += 1
+
+                  if kept or removed:
+                      print(
+                          f"{path}: kept {kept}, removed {removed}"
+                      )
+
+              except ET.ParseError as e:
+                  print(f"Skipping invalid XML: {path}: {e}")
+
+          print()
+          print("========================================")
+          print("USA EPG CHANNEL FILTER")
+          print("========================================")
+          print(f"Files checked: {len(files)}")
+          print(f"Files changed: {files_changed}")
+          print(f"Channels before: {total_before}")
+          print(f"USA channels kept: {total_after}")
+          print(f"Non-USA channels removed: {total_before - total_after}")
+          print("========================================")
+          PY
+
       - name: Grab EPG sources
         run: |
           set -e
@@ -333,6 +399,8 @@ jobs:
               .replace(/\s+/g, " ");
 
           dataset.channels = dataset.channels.filter((channel) => {
+            if (channel.country !== "US") return false;
+
             const names = [
               channel.name,
               ...channel.alt_names,
@@ -344,7 +412,7 @@ jobs:
           dataset.orphans = [];
 
           log.info(
-            `Curated whitelist: ${dataset.channels.length} channel(s)`
+            `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
 
@@ -570,6 +638,8 @@ jobs:
               .replace(/\s+/g, " ");
 
           dataset.channels = dataset.channels.filter((channel) => {
+            if (channel.country !== "US") return false;
+
             const names = [
               channel.name,
               ...channel.alt_names,
@@ -581,7 +651,7 @@ jobs:
           dataset.orphans = [];
 
           log.info(
-            `Curated whitelist: ${dataset.channels.length} channel(s)`
+            `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
 
@@ -872,6 +942,8 @@ jobs:
               .replace(/\s+/g, " ");
 
           dataset.channels = dataset.channels.filter((channel) => {
+            if (channel.country !== "US") return false;
+
             const names = [
               channel.name,
               ...channel.alt_names,
@@ -883,7 +955,7 @@ jobs:
           dataset.orphans = [];
 
           log.info(
-            `Curated whitelist: ${dataset.channels.length} channel(s)`
+            `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
 
@@ -956,7 +1028,7 @@ jobs:
         working-directory: nexus
         run: |
           echo "========================================"
-          echo "CURATED CHANNELS"
+          echo "CURATED US CHANNELS"
           echo "========================================"
 
           grep '^#EXTINF' public/channels.m3u \
