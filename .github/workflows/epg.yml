@@ -178,6 +178,9 @@ jobs:
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
+            "nbc",
+            "cbs",
+            "pbs",
             "fox",
             "game show network",
             "history",
@@ -730,6 +733,9 @@ jobs:
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
+            "nbc",
+            "cbs",
+            "pbs",
             "fox",
             "game show network",
             "history",
@@ -913,12 +919,281 @@ jobs:
         working-directory: nexus
         run: npm run cli -- aggregate
 
+      - name: Remove fixed streams from discovery input
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("config/discovered.m3u")
+
+          fixed_names = {
+              "abc",
+              "cbs",
+              "pbs",
+              "fx",
+              "fxhd",
+              "a&e",
+              "ae",
+              "syfy",
+              "freeform",
+              "freeformhd",
+              "hallmarkmovies&more",
+              "cartoonnetwork",
+              "moremax",
+              "bravo",
+              "e!",
+              "lifetime",
+              "disney",
+              "disneychannel",
+              "hbozone",
+              "cinemax",
+              "usa",
+              "espn2",
+              "espn",
+              "animalplanet",
+              "mtv",
+              "tnt",
+              "tnthd",
+              "tbs",
+              "paramountmoviechannel",
+          }
+
+          def normalize(value):
+              return re.sub(
+                  r"[^a-z0-9&!]+",
+                  "",
+                  value.lower()
+              )
+
+          lines = path.read_text().splitlines()
+          output = []
+
+          i = 0
+          removed = 0
+
+          while i < len(lines):
+              if not lines[i].startswith("#EXTINF:"):
+                  output.append(lines[i])
+                  i += 1
+                  continue
+
+              extinf = lines[i]
+              title = extinf.rsplit(",", 1)[-1].strip()
+
+              if normalize(title) in fixed_names:
+                  removed += 1
+                  i += 2
+                  continue
+
+              output.append(extinf)
+
+              if i + 1 < len(lines):
+                  output.append(lines[i + 1])
+
+              i += 2
+
+          path.write_text(
+              "\n".join(output) + "\n"
+          )
+
+          print(
+              f"Removed {removed} fixed stream(s) from discovery input."
+          )
+          PY
+
       - name: Discover and verify replacements
         working-directory: nexus
         run: |
           npm run cli -- discover \
             --max-probes 800 \
             --apply
+
+      - name: Restore fixed streams
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("config/discovered.m3u")
+
+          fixed = {
+              "ABC": "http://4.30.180.36:8420/abc/index.m3u8?token=test",
+              "CBS": "https://livevideo01.cbs8.com/hls/live/2014967/newscasts/live.m3u8",
+              "PBS": "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8",
+              "FX": "http://4.30.180.36:8420/fx/index.m3u8?token=test",
+              "FX HD": "http://190.11.225.124:5000/live/fx_hd/playlist.m3u8",
+              "A&E": "http://iptvpro.ddns.net/stream/ae/index.m3u8",
+              "Syfy": "http://23.237.104.106:8080/USA_SYFY/index.m3u8",
+              "Freeform": "http://4.30.180.36:8420/freeform/index.m3u8?token=test",
+              "FreeformHD": "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
+              "Hallmark Movies & More": "https://pb-clwlfvkqpn19r.akamaized.net/Hallmark_Movies_&_More.m3u8",
+              "Cartoon Network": "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
+              "MoreMax": "http://23.237.104.106:8080/USA_MOREMAX/index.m3u8",
+              "Bravo": "http://4.30.180.36:8420/bravo/index.m3u8?token=test",
+              "E!": "http://23.237.104.106:8080/USA_E/index.m3u8",
+              "Lifetime": "http://41.205.93.154/LIFETIME/index.m3u8",
+              "Disney": "http://4.30.180.36:8420/disneychannel/index.m3u8?token=test",
+              "HboZone": "http://23.237.104.106:8080/USA_HBO_ZONE/index.m3u8",
+              "Cinemax": "http://23.237.104.106:8080/USA_CINEMAX/index.m3u8",
+              "USA": "http://4.30.180.36:8420/usa/index.m3u8?token=test",
+              "ESPN2": "http://4.30.180.36:8420/espn2/index.m3u8?token=test",
+              "ESPN": "http://4.30.180.36:8420/espn/index.m3u8?token=test",
+              "Animal Planet": "http://23.237.104.106:8080/USA_ANIMAL_PLANET/index.m3u8",
+              "MTV": "http://23.237.104.106:8080/USA_MTV/index.m3u8?takodachi",
+              "TNT": "https://turnerlive.warnermediacdn.com/hls/live/2023168/tnteast/slate/VIDEO_0_3564000.m3u8",
+              "TNT HD": "http://190.11.225.124:5000/live/tnt_hd/playlist.m3u8",
+              "TBS": "https://turnerlive.warnermediacdn.com/hls/live/2023172/tbseast/slate/VIDEO_0_3564000.m3u8",
+              "Paramount Movie Channel": "https://jmp2.uk/plu-5cb0cae7a461406ffe3f5213.m3u8",
+          }
+
+          aliases = {
+              "ABC": {"abc"},
+              "CBS": {"cbs"},
+              "PBS": {"pbs"},
+              "FX": {"fx"},
+              "FX HD": {"fxhd", "fx hd"},
+              "A&E": {"a&e", "ae"},
+              "Syfy": {"syfy"},
+              "Freeform": {"freeform"},
+              "FreeformHD": {"freeformhd", "freeform hd"},
+              "Hallmark Movies & More": {"hallmark movies & more"},
+              "Cartoon Network": {"cartoon network"},
+              "MoreMax": {"moremax", "more max"},
+              "Bravo": {"bravo"},
+              "E!": {"e!"},
+              "Lifetime": {"lifetime"},
+              "Disney": {"disney", "disney channel"},
+              "HboZone": {"hbozone", "hbo zone"},
+              "Cinemax": {"cinemax"},
+              "USA": {"usa"},
+              "ESPN2": {"espn2"},
+              "ESPN": {"espn"},
+              "Animal Planet": {"animal planet"},
+              "MTV": {"mtv"},
+              "TNT": {"tnt"},
+              "TNT HD": {"tnthd", "tnt hd"},
+              "TBS": {"tbs"},
+              "Paramount Movie Channel": {"paramount movie channel"},
+          }
+
+          def normalize(value):
+              return "".join(
+                  char.lower()
+                  for char in value
+                  if char.isalnum()
+              )
+
+          lines = path.read_text().splitlines()
+          output = []
+
+          found = set()
+          i = 0
+
+          while i < len(lines):
+              line = lines[i]
+
+              if not line.startswith("#EXTINF:"):
+                  output.append(line)
+                  i += 1
+                  continue
+
+              title = line.rsplit(",", 1)[-1].strip()
+              normalized_title = normalize(title)
+
+              matched = None
+
+              for canonical, names in aliases.items():
+                  normalized_names = {
+                      normalize(name)
+                      for name in names
+                  }
+
+                  if normalized_title in normalized_names:
+                      matched = canonical
+                      break
+
+              output.append(line)
+
+              if i + 1 < len(lines):
+                  if matched:
+                      output.append(fixed[matched])
+                      found.add(matched)
+                  else:
+                      output.append(lines[i + 1])
+
+              i += 2
+
+          missing = [
+              name
+              for name in fixed
+              if name not in found
+          ]
+
+          fallback_ids = {
+              "ABC": "ABC.us@East",
+              "CBS": "CBS.us@East",
+              "PBS": "PBS.us",
+              "FX": "FX.us",
+              "FX HD": "FX.us@HD",
+              "A&E": "A&E.us",
+              "Syfy": "Syfy.us",
+              "Freeform": "Freeform.us",
+              "FreeformHD": "Freeform.us@HD",
+              "Hallmark Movies & More": "HallmarkMoviesMore.us",
+              "Cartoon Network": "CartoonNetwork.us",
+              "MoreMax": "MoreMax.us",
+              "Bravo": "Bravo.us",
+              "E!": "E.us",
+              "Lifetime": "Lifetime.us",
+              "Disney": "DisneyChannel.us",
+              "HboZone": "HBOZone.us",
+              "Cinemax": "Cinemax.us",
+              "USA": "USA.us",
+              "ESPN2": "ESPN2.us",
+              "ESPN": "ESPN.us",
+              "Animal Planet": "AnimalPlanet.us",
+              "MTV": "MTV.us",
+              "TNT": "TNT.us@East",
+              "TNT HD": "TNT.us@HD",
+              "TBS": "TBS.us@East",
+              "Paramount Movie Channel": "ParamountMovieChannel.us",
+          }
+
+          if missing:
+              output.append("")
+              output.append(
+                  "# Fixed streams added by curated workflow"
+              )
+
+              for name in missing:
+                  output.append(
+                      f'#EXTINF:-1 tvg-id="{fallback_ids.get(name, name)}" '
+                      f'tvg-name="{name}" group-title="US",{name}'
+                  )
+                  output.append(fixed[name])
+
+          path.write_text(
+              "\n".join(output) + "\n"
+          )
+
+          print("========================================")
+          print("FIXED STREAMS RESTORED")
+          print("========================================")
+
+          for name in fixed:
+              if name in found:
+                  print(f"LOCKED: {name}")
+              else:
+                  print(f"ADDED:  {name}")
+
+          print("----------------------------------------")
+          print(f"Fixed channels: {len(fixed)}")
+          print(f"Existing fixed channels: {len(found)}")
+          print(f"Added missing fixed channels: {len(missing)}")
+          print("========================================")
+          PY
 
       - name: Copy discovered streams back
         run: |
@@ -1053,6 +1328,9 @@ jobs:
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
+            "nbc",
+            "cbs",
+            "pbs",
             "fox",
             "game show network",
             "history",
@@ -1605,6 +1883,9 @@ jobs:
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
+            "nbc",
+            "cbs",
+            "pbs",
             "fox",
             "game show network",
             "history",
@@ -1798,16 +2079,31 @@ jobs:
           NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.event.repository.name }}
         run: npm run cli -- api --clean
 
-      - name: Apply fixed stream URLs
+      - name: Apply fixed streams and filter final playlist
         run: |
           python - <<'PY'
           from pathlib import Path
+          import json
           import re
 
           path = Path("nexus/public/playlists/best.m3u")
+          dataset_path = Path("nexus/.data/channels.json")
 
           if not path.exists():
               raise SystemExit("Could not find generated best.m3u")
+
+          if not dataset_path.exists():
+              raise SystemExit("Could not find aggregated channels.json")
+
+          dataset = json.loads(
+              dataset_path.read_text()
+          )
+
+          curated_ids = {
+              str(channel.get("id", "")).strip()
+              for channel in dataset.get("channels", [])
+              if channel.get("id")
+          }
 
           fixed = {
               "ABC": "http://4.30.180.36:8420/abc/index.m3u8?token=test",
@@ -1839,70 +2135,81 @@ jobs:
               "Paramount Movie Channel": "https://jmp2.uk/plu-5cb0cae7a461406ffe3f5213.m3u8",
           }
 
-          lines = path.read_text().splitlines()
-          output = []
-
-          i = 0
-
-          while i < len(lines):
-              line = lines[i]
-
-              if not line.startswith("#EXTINF:"):
-                  output.append(line)
-                  i += 1
-                  continue
-
-              title = line.rsplit(",", 1)[-1].strip()
-              fixed_url = fixed.get(title)
-
-              output.append(line)
-
-              if i + 1 < len(lines):
-                  if fixed_url:
-                      output.append(fixed_url)
-                  else:
-                      output.append(lines[i + 1])
-
-              i += 2
-
-          path.write_text("\n".join(output) + "\n")
-
-          print("Fixed stream URLs applied.")
-          for name in fixed:
-              print(f"  {name}")
-          PY
-
-      - name: Filter final playlist
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import json
-          import re
-
-          path = Path("nexus/public/playlists/best.m3u")
-          dataset_path = Path("nexus/.data/channels.json")
-
-          if not path.exists():
-              raise SystemExit("Could not find generated best.m3u")
-
-          if not dataset_path.exists():
-              raise SystemExit("Could not find aggregated channels.json")
-
-          dataset = json.loads(dataset_path.read_text())
-
-          curated_ids = {
-              str(channel.get("id", "")).strip()
-              for channel in dataset.get("channels", [])
-              if channel.get("id")
+          aliases = {
+              "ABC": {"abc"},
+              "CBS": {"cbs"},
+              "PBS": {"pbs"},
+              "FX": {"fx"},
+              "FX HD": {"fxhd", "fx hd"},
+              "A&E": {"a&e", "ae"},
+              "Syfy": {"syfy"},
+              "Freeform": {"freeform"},
+              "FreeformHD": {"freeformhd", "freeform hd"},
+              "Hallmark Movies & More": {"hallmark movies & more"},
+              "Cartoon Network": {"cartoon network"},
+              "MoreMax": {"moremax", "more max"},
+              "Bravo": {"bravo"},
+              "E!": {"e!"},
+              "Lifetime": {"lifetime"},
+              "Disney": {"disney", "disney channel"},
+              "HboZone": {"hbozone", "hbo zone"},
+              "Cinemax": {"cinemax"},
+              "USA": {"usa"},
+              "ESPN2": {"espn2"},
+              "ESPN": {"espn"},
+              "Animal Planet": {"animal planet"},
+              "MTV": {"mtv"},
+              "TNT": {"tnt"},
+              "TNT HD": {"tnthd", "tnt hd"},
+              "TBS": {"tbs"},
+              "Paramount Movie Channel": {"paramount movie channel"},
           }
 
-          if not curated_ids:
-              raise SystemExit("No curated channel IDs found")
+          fallback_ids = {
+              "ABC": "ABC.us@East",
+              "CBS": "CBS.us@East",
+              "PBS": "PBS.us",
+              "FX": "FX.us",
+              "FX HD": "FX.us@HD",
+              "A&E": "A&E.us",
+              "Syfy": "Syfy.us",
+              "Freeform": "Freeform.us",
+              "FreeformHD": "Freeform.us@HD",
+              "Hallmark Movies & More": "HallmarkMoviesMore.us",
+              "Cartoon Network": "CartoonNetwork.us",
+              "MoreMax": "MoreMax.us",
+              "Bravo": "Bravo.us",
+              "E!": "E.us",
+              "Lifetime": "Lifetime.us",
+              "Disney": "DisneyChannel.us",
+              "HboZone": "HBOZone.us",
+              "Cinemax": "Cinemax.us",
+              "USA": "USA.us",
+              "ESPN2": "ESPN2.us",
+              "ESPN": "ESPN.us",
+              "Animal Planet": "AnimalPlanet.us",
+              "MTV": "MTV.us",
+              "TNT": "TNT.us@East",
+              "TNT HD": "TNT.us@HD",
+              "TBS": "TBS.us@East",
+              "Paramount Movie Channel": "ParamountMovieChannel.us",
+          }
 
-          print(f"Curated channel IDs: {len(curated_ids)}")
+          def normalize(value):
+              return "".join(
+                  char.lower()
+                  for char in value
+                  if char.isalnum()
+              )
 
           lines = path.read_text().splitlines()
-          output = []
+
+          output = [
+              '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
+          ]
+
+          found_fixed = set()
+          kept_normal = 0
 
           i = 0
 
@@ -1913,48 +2220,94 @@ jobs:
                   i += 1
                   continue
 
-              match = re.search(
+              extinf = line
+
+              title = extinf.rsplit(",", 1)[-1].strip()
+              normalized_title = normalize(title)
+
+              tvg_match = re.search(
                   r'tvg-id="([^"]*)"',
-                  line
+                  extinf
               )
 
               tvg_id = (
-                  match.group(1).strip()
-                  if match
+                  tvg_match.group(1).strip()
+                  if tvg_match
                   else ""
               )
 
-              if tvg_id in curated_ids:
-                  output.append(line)
+              fixed_match = None
+
+              for canonical, names in aliases.items():
+                  if normalized_title in {
+                      normalize(name)
+                      for name in names
+                  }:
+                      fixed_match = canonical
+                      break
+
+              is_curated = tvg_id in curated_ids
+
+              if fixed_match:
+                  output.append(extinf)
+
+                  if i + 1 < len(lines):
+                      output.append(fixed[fixed_match])
+
+                  found_fixed.add(fixed_match)
+
+              elif is_curated:
+                  output.append(extinf)
 
                   if i + 1 < len(lines):
                       output.append(lines[i + 1])
 
+                  kept_normal += 1
+
               i += 2
 
-          if not output:
-              raise SystemExit(
-                  "Whitelist removed every channel"
+          missing_fixed = [
+              name
+              for name in fixed
+              if name not in found_fixed
+          ]
+
+          if missing_fixed:
+              output.append("")
+              output.append(
+                  "# Fixed streams added by curated workflow"
               )
 
-          output.insert(
-              0,
-              '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
-          )
+              for name in missing_fixed:
+                  output.append(
+                      f'#EXTINF:-1 tvg-id="{fallback_ids[name]}" '
+                      f'tvg-name="{name}" group-title="US",{name}'
+                  )
+                  output.append(fixed[name])
 
           path.write_text(
               "\n".join(output) + "\n"
           )
 
-          count = sum(
+          total = sum(
               1
               for line in output
               if line.startswith("#EXTINF:")
           )
 
-          print(
-              f"Final curated playlist: {count} channel(s)"
-          )
+          print("========================================")
+          print("FINAL CURATED PLAYLIST")
+          print("========================================")
+          print(f"Normal curated channels: {kept_normal}")
+          print(f"Fixed channels present: {len(found_fixed)}")
+          print(f"Fixed channels added: {len(missing_fixed)}")
+          print(f"Total final channels: {total}")
+          print("========================================")
+
+          if len(found_fixed) != len(fixed):
+              print("WARNING: Some fixed channels had to be added.")
+          else:
+              print("All fixed channels were found and locked.")
           PY
 
       - name: Create final EPG files
@@ -2201,6 +2554,62 @@ jobs:
           echo
           echo "EPG URL:"
           echo "https://naicumlegat.github.io/Guide/epg/guide.xml.gz"
+
+      - name: Verify every fixed stream
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("nexus/public/channels.m3u")
+          text = path.read_text()
+
+          fixed = {
+              "ABC": "http://4.30.180.36:8420/abc/index.m3u8?token=test",
+              "CBS": "https://livevideo01.cbs8.com/hls/live/2014967/newscasts/live.m3u8",
+              "PBS": "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8",
+              "FX": "http://4.30.180.36:8420/fx/index.m3u8?token=test",
+              "FX HD": "http://190.11.225.124:5000/live/fx_hd/playlist.m3u8",
+              "A&E": "http://iptvpro.ddns.net/stream/ae/index.m3u8",
+              "Syfy": "http://23.237.104.106:8080/USA_SYFY/index.m3u8",
+              "Freeform": "http://4.30.180.36:8420/freeform/index.m3u8?token=test",
+              "FreeformHD": "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
+              "Hallmark Movies & More": "https://pb-clwlfvkqpn19r.akamaized.net/Hallmark_Movies_&_More.m3u8",
+              "Cartoon Network": "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
+              "MoreMax": "http://23.237.104.106:8080/USA_MOREMAX/index.m3u8",
+              "Bravo": "http://4.30.180.36:8420/bravo/index.m3u8?token=test",
+              "E!": "http://23.237.104.106:8080/USA_E/index.m3u8",
+              "Lifetime": "http://41.205.93.154/LIFETIME/index.m3u8",
+              "Disney": "http://4.30.180.36:8420/disneychannel/index.m3u8?token=test",
+              "HboZone": "http://23.237.104.106:8080/USA_HBO_ZONE/index.m3u8",
+              "Cinemax": "http://23.237.104.106:8080/USA_CINEMAX/index.m3u8",
+              "USA": "http://4.30.180.36:8420/usa/index.m3u8?token=test",
+              "ESPN2": "http://4.30.180.36:8420/espn2/index.m3u8?token=test",
+              "ESPN": "http://4.30.180.36:8420/espn/index.m3u8?token=test",
+              "Animal Planet": "http://23.237.104.106:8080/USA_ANIMAL_PLANET/index.m3u8",
+              "MTV": "http://23.237.104.106:8080/USA_MTV/index.m3u8?takodachi",
+              "TNT": "https://turnerlive.warnermediacdn.com/hls/live/2023168/tnteast/slate/VIDEO_0_3564000.m3u8",
+              "TNT HD": "http://190.11.225.124:5000/live/tnt_hd/playlist.m3u8",
+              "TBS": "https://turnerlive.warnermediacdn.com/hls/live/2023172/tbseast/slate/VIDEO_0_3564000.m3u8",
+              "Paramount Movie Channel": "https://jmp2.uk/plu-5cb0cae7a461406ffe3f5213.m3u8",
+          }
+
+          missing = []
+
+          for name, url in fixed.items():
+              if url not in text:
+                  missing.append(name)
+
+          if missing:
+              print("ERROR: These fixed streams are missing:")
+              for name in missing:
+                  print(f"  {name}")
+              raise SystemExit(1)
+
+          print(
+              f"Verified all {len(fixed)} fixed streams are present "
+              "with their exact supplied URLs."
+          )
+          PY
 
       - name: Show curated result
         working-directory: nexus
