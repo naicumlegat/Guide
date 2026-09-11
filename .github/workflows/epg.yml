@@ -1,5 +1,4 @@
 name: Build Curated IPTV
-
 on:
   schedule:
     - cron: "15 0,6,12,18 * * *"
@@ -7,19 +6,15 @@ on:
     - cron: "0 2 * * *"
     - cron: "0 3,15 * * *"
   workflow_dispatch:
-
 permissions:
   contents: write
   pages: write
   id-token: write
-
 concurrency:
   group: curated-iptv
   cancel-in-progress: false
-
 env:
   ENGINE_REPO: https://github.com/dearbulut/iptv.git
-
 jobs:
   epg:
     name: EPG Grab
@@ -28,22 +23,17 @@ jobs:
       github.event.schedule == '0 1 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 180
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Create config directory
         run: mkdir -p config
-
       - name: Clone Dearbulut engine
         run: git clone --depth 1 "$ENGINE_REPO" nexus
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Restore discovered streams
         run: |
           mkdir -p nexus/config
@@ -52,128 +42,99 @@ jobs:
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
-
       - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
           import os
-
           path = Path("config/sources.yml")
           text = path.read_text()
           repo = os.environ["GITHUB_REPOSITORY"]
-
           url = (
               f"https://raw.githubusercontent.com/"
               f"{repo}/main/config/discovered.m3u"
           )
-
           text = text.replace(
               "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
               url
           )
-
           path.write_text(text)
           PY
-
       - name: Preserve stream feed identity
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/sources.ts")
           text = path.read_text()
-
           if "function splitChannelFeed(" not in text:
               marker = "interface JsonStreamShape {"
-
               helper = r'''
           function splitChannelFeed(value: string | null): {
             channel: string | null;
             feed: string | null;
           } {
             const valueTrimmed = value?.trim() ?? "";
-
             if (!valueTrimmed) {
               return {
                 channel: null,
                 feed: null,
               };
             }
-
             const at = valueTrimmed.indexOf("@");
-
             if (at <= 0 || at === valueTrimmed.length - 1) {
               return {
                 channel: valueTrimmed,
                 feed: null,
               };
             }
-
             return {
               channel: valueTrimmed.slice(0, at),
               feed: valueTrimmed.slice(at + 1),
             };
           }
-
           '''
-
               if marker not in text:
                   raise SystemExit(
                       "Could not locate sources.ts insertion point"
                   )
-
               text = text.replace(marker, helper + marker, 1)
-
           old = """      const title = entry.title ?? entry.name ?? '';
           push({
             channel: entry.channel ?? entry.tvg_id ?? null,
             feed: entry.feed ?? null,"""
-
           new = """      const identity = splitChannelFeed(
             entry.channel ?? entry.tvg_id ?? null
           );
-
           push({
             channel: identity.channel,
             feed: entry.feed ?? identity.feed,"""
-
           if old in text:
               text = text.replace(old, new, 1)
-
           old = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
           const title = entry.title || entry.attributes['tvg-name'] || '';
           push({
             channel: tvgId,
             feed: null,"""
-
           new = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
           const identity = splitChannelFeed(tvgId);
           const title = entry.title || entry.attributes['tvg-name'] || '';
-
           push({
             channel: identity.channel,
             feed: identity.feed,"""
-
           if old in text:
               text = text.replace(old, new, 1)
-
           path.write_text(text)
           PY
-
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
-
           marker = "await saveDataset(dataset);"
-
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
@@ -213,23 +174,19 @@ jobs:
             "the jamie oliver channel",
             "the nanny"
           ]);
-
           const normalizeCuratedName = (value: string): string =>
             value
               .trim()
               .toLowerCase()
               .replace(/\s+/g, " ");
-
           const isCanThoTV2 = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
               channelId.includes("cantho") ||
               channelId.includes("can-tho") ||
@@ -240,165 +197,148 @@ jobs:
               )
             );
           };
-
-          const isMiamiABC = (channel: any): boolean => {
+          const isABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
-              channelId.includes("wplg") ||
-              names.some((name) =>
-                name.includes("wplg") ||
-                name.includes("miami")
-              )
+              channelId === "abc.us" ||
+              names.includes("abc")
             );
           };
-
+          const keepABCEastOnly = (channel: any): boolean => {
+            if (!isABC(channel)) return true;
+            const streams = Array.isArray(channel.streams)
+              ? channel.streams
+              : [];
+            const eastStreams = streams.filter((stream: any) => {
+              const feed = String(
+                stream.feed ?? ""
+              ).trim().toLowerCase();
+              return feed === "east";
+            });
+            if (eastStreams.length === 0) return false;
+            channel.streams = eastStreams;
+            return true;
+          };
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             const isCurated = names.some((name) =>
               CURATED_NAMES.has(name)
             );
-
             if (!isCurated) return false;
-
-            if (names.includes("abc")) {
+            if (isABC(channel)) {
               return (
                 channel.country === "US" &&
-                isMiamiABC(channel)
+                keepABCEastOnly(channel)
               );
             }
-
             if (names.includes("hgtv")) return true;
-
             return channel.country === "US";
           });
-
           dataset.orphans = [];
-
           log.info(
             `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
-
           if "const CURATED_NAMES = new Set([" in text:
               print("Whitelist already patched")
               raise SystemExit(0)
-
           if marker not in text:
               raise SystemExit(
                   "Could not locate aggregate save marker"
               )
-
           text = text.replace(
               marker,
               whitelist + "\n          " + marker,
               1
           )
-
           path.write_text(text)
           PY
-
       - name: Restore health database
         working-directory: nexus
         run: |
           mkdir -p .data
           git fetch origin state:state --depth=1 2>/dev/null || true
           git show state:health.json > .data/health.json 2>/dev/null || true
-
       - name: Install Dearbulut dependencies
         working-directory: nexus
         run: npm ci
-
       - name: Aggregate curated dataset
         working-directory: nexus
         run: npm run cli -- aggregate
-
       - name: Clone iptv-org EPG grabber
         run: git clone --depth 1 -b master https://github.com/iptv-org/epg.git epg
-
       - name: Install EPG dependencies
         working-directory: epg
         run: npm install --no-audit --no-fund
-
       - name: Build all curated EPG source mappings
         run: |
           python - <<'PY'
           import json
           import xml.etree.ElementTree as ET
           from pathlib import Path
-
           dataset_path = Path("nexus/.data/channels.json")
           epg_sites = Path("epg/sites")
           output = Path("epg/custom/all-curated-us.channels.xml")
-
           dataset = json.loads(dataset_path.read_text())
-
           curated_ids = {
               str(channel.get("id", "")).strip()
               for channel in dataset.get("channels", [])
               if channel.get("id")
           }
-
           if not curated_ids:
               raise SystemExit("No curated channel IDs found.")
-
           print("========================================")
           print("BUILD ALL CURATED EPG MAPPINGS")
           print("========================================")
           print(f"Curated channel IDs: {len(curated_ids)}")
-
           root = ET.Element("channels")
           seen = set()
           total = 0
           source_files = 0
-
           for channels_file in sorted(epg_sites.rglob("*.channels.xml")):
               try:
                   source_root = ET.parse(channels_file).getroot()
               except Exception as exc:
                   print(f"Skipping unreadable {channels_file}: {exc}")
                   continue
-
               matched_file = 0
-
               for channel in source_root.findall("channel"):
                   xmltv_id = (channel.get("xmltv_id") or "").strip()
-
                   if not xmltv_id:
                       continue
-
                   base_id = xmltv_id.split("@", 1)[0].strip()
-
                   if base_id not in curated_ids:
                       continue
-
                   site = (channel.get("site") or "").strip()
                   site_id = (channel.get("site_id") or "").strip()
                   lang = (channel.get("lang") or "en").strip()
-
+                  display_name = (channel.text or "").strip()
+                  if base_id == "ABC.us":
+                      abc_reference = (
+                          site_id.lower(),
+                          display_name.lower(),
+                      )
+                      if not any(
+                          "wabc" in value
+                          for value in abc_reference
+                      ):
+                          continue
                   if not site or not site_id:
                       continue
-
                   key = (site, site_id, lang, xmltv_id)
-
                   if key in seen:
                       continue
-
                   seen.add(key)
-
                   new_channel = ET.SubElement(
                       root,
                       "channel",
@@ -409,58 +349,46 @@ jobs:
                           "xmltv_id": xmltv_id,
                       },
                   )
-
                   new_channel.text = (
                       channel.text or base_id
                   ).strip()
-
                   matched_file += 1
                   total += 1
-
               if matched_file:
                   source_files += 1
                   print(
                       f"{channels_file}: "
                       f"{matched_file} matching mapping(s)"
                   )
-
           if total == 0:
               raise SystemExit(
                   "No EPG mappings matched the curated channel IDs."
               )
-
           output.parent.mkdir(parents=True, exist_ok=True)
-
           try:
               ET.indent(root, space="  ")
           except AttributeError:
               pass
-
           ET.ElementTree(root).write(
               output,
               encoding="utf-8",
               xml_declaration=True,
           )
-
           print("----------------------------------------")
           print(f"EPG source files matched: {source_files}")
           print(f"Total EPG mappings: {total}")
           print(f"Output: {output}")
           print("========================================")
           PY
-
       - name: Grab all curated EPG sources
         run: |
           set -e
           mkdir -p guides
-
           rm -f epg/guide.xml
           rm -f epg/guide.xml.gz
-
           echo "========================================"
           echo "GRAB ALL CURATED EPG SOURCES"
           echo "========================================"
-
           (
             cd epg
             NODE_OPTIONS="--max-old-space-size=8192" npm run grab -- \
@@ -471,27 +399,21 @@ jobs:
               --maxConnections=12 \
               --gzip
           ) || true
-
           if [ ! -s epg/guide.xml ]; then
             echo "No combined EPG guide was produced."
             exit 1
           fi
-
           programmes=$(grep -c '<programme' epg/guide.xml || true)
-
           if [ "${programmes:-0}" -lt 1 ]; then
             echo "No EPG programmes were produced."
             exit 1
           fi
-
           if [ -f epg/guide.xml.gz ]; then
             cp epg/guide.xml.gz guides/all-curated-us.xml.gz
           else
             gzip -9 -c epg/guide.xml > guides/all-curated-us.xml.gz
           fi
-
           echo "Programs collected: $programmes"
-
       - name: Publish EPG state
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -500,28 +422,22 @@ jobs:
         run: |
           cp -R ../guides ./guides
           chmod +x scripts/publish-state.sh
-
           for attempt in 1 2 3 4 5; do
             echo "Publishing EPG state, attempt $attempt"
-
             if ./scripts/publish-state.sh \
               "epg: $(date -u +%FT%TZ)" \
               guides/:epg/; then
               echo "EPG state published successfully"
               exit 0
             fi
-
             echo "State branch changed during publish"
-
             if [ "$attempt" -lt 5 ]; then
               sleep $((attempt * 3))
               git fetch origin state:state --force
             fi
           done
-
           echo "Failed to publish EPG state after 5 attempts"
           exit 1
-
   discovery:
     name: Discover Streams
     if: >
@@ -529,153 +445,118 @@ jobs:
       github.event.schedule == '0 2 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 120
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Create config directory
         run: mkdir -p config
-
       - name: Clone Dearbulut engine
         run: git clone --depth 1 "$ENGINE_REPO" nexus
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Restore discovered streams
         run: |
           mkdir -p nexus/config
-
           if [ -f config/discovered.m3u ]; then
             cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
-
       - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
           import os
-
           path = Path("config/sources.yml")
           text = path.read_text()
           repo = os.environ["GITHUB_REPOSITORY"]
-
           url = (
               f"https://raw.githubusercontent.com/"
               f"{repo}/main/config/discovered.m3u"
           )
-
           text = text.replace(
               "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
               url
           )
-
           path.write_text(text)
           PY
-
       - name: Preserve stream feed identity
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/sources.ts")
           text = path.read_text()
-
           if "function splitChannelFeed(" not in text:
               marker = "interface JsonStreamShape {"
-
               helper = r'''
           function splitChannelFeed(value: string | null): {
             channel: string | null;
             feed: string | null;
           } {
             const valueTrimmed = value?.trim() ?? "";
-
             if (!valueTrimmed) {
               return {
                 channel: null,
                 feed: null,
               };
             }
-
             const at = valueTrimmed.indexOf("@");
-
             if (at <= 0 || at === valueTrimmed.length - 1) {
               return {
                 channel: valueTrimmed,
                 feed: null,
               };
             }
-
             return {
               channel: valueTrimmed.slice(0, at),
               feed: valueTrimmed.slice(at + 1),
             };
           }
-
           '''
-
               if marker not in text:
                   raise SystemExit(
                       "Could not locate sources.ts insertion point"
                   )
-
               text = text.replace(marker, helper + marker, 1)
-
           old = """      const title = entry.title ?? entry.name ?? '';
           push({
             channel: entry.channel ?? entry.tvg_id ?? null,
             feed: entry.feed ?? null,"""
-
           new = """      const identity = splitChannelFeed(
             entry.channel ?? entry.tvg_id ?? null
           );
-
           push({
             channel: identity.channel,
             feed: entry.feed ?? identity.feed,"""
-
           if old in text:
               text = text.replace(old, new, 1)
-
           old = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
           const title = entry.title || entry.attributes['tvg-name'] || '';
           push({
             channel: tvgId,
             feed: null,"""
-
           new = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
           const identity = splitChannelFeed(tvgId);
           const title = entry.title || entry.attributes['tvg-name'] || '';
-
           push({
             channel: identity.channel,
             feed: identity.feed,"""
-
           if old in text:
               text = text.replace(old, new, 1)
-
           path.write_text(text)
           PY
-
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
-
           marker = "await saveDataset(dataset);"
-
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
@@ -715,23 +596,19 @@ jobs:
             "the jamie oliver channel",
             "the nanny"
           ]);
-
           const normalizeCuratedName = (value: string): string =>
             value
               .trim()
               .toLowerCase()
               .replace(/\s+/g, " ");
-
           const isCanThoTV2 = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
               channelId.includes("cantho") ||
               channelId.includes("can-tho") ||
@@ -742,123 +619,108 @@ jobs:
               )
             );
           };
-
-          const isMiamiABC = (channel: any): boolean => {
+          const isABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
-              channelId.includes("wplg") ||
-              names.some((name) =>
-                name.includes("wplg") ||
-                name.includes("miami")
-              )
+              channelId === "abc.us" ||
+              names.includes("abc")
             );
           };
-
+          const keepABCEastOnly = (channel: any): boolean => {
+            if (!isABC(channel)) return true;
+            const streams = Array.isArray(channel.streams)
+              ? channel.streams
+              : [];
+            const eastStreams = streams.filter((stream: any) => {
+              const feed = String(
+                stream.feed ?? ""
+              ).trim().toLowerCase();
+              return feed === "east";
+            });
+            if (eastStreams.length === 0) return false;
+            channel.streams = eastStreams;
+            return true;
+          };
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             const isCurated = names.some((name) =>
               CURATED_NAMES.has(name)
             );
-
             if (!isCurated) return false;
-
-            if (names.includes("abc")) {
+            if (isABC(channel)) {
               return (
                 channel.country === "US" &&
-                isMiamiABC(channel)
+                keepABCEastOnly(channel)
               );
             }
-
             if (names.includes("hgtv")) return true;
-
             return channel.country === "US";
           });
-
           dataset.orphans = [];
-
           log.info(
             `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
-
           if "const CURATED_NAMES = new Set([" in text:
               print("Whitelist already patched")
               raise SystemExit(0)
-
           if marker not in text:
               raise SystemExit(
                   "Could not locate aggregate save marker"
               )
-
           text = text.replace(
               marker,
               whitelist + "\n          " + marker,
               1
           )
-
           path.write_text(text)
           PY
-
       - name: Restore discovery rejection memory
         working-directory: nexus
         run: |
           mkdir -p .data
           git fetch origin state:state --depth=1 2>/dev/null || true
           git show state:discovery.json > .data/discovery.json 2>/dev/null || true
-
       - name: Install dependencies
         working-directory: nexus
         run: npm ci
-
       - name: Verify ffprobe
         run: ffprobe -version | head -1
-
       - name: Aggregate curated dataset
         working-directory: nexus
         run: npm run cli -- aggregate
-
       - name: Discover and verify replacements
         working-directory: nexus
         run: |
           npm run cli -- discover \
             --max-probes 800 \
             --apply
-
       - name: Copy discovered streams back
         run: |
           mkdir -p config
           cp nexus/config/discovered.m3u config/discovered.m3u
-
       - name: Commit discovered streams
         run: |
           if git diff --quiet -- config/discovered.m3u; then
             echo "No new discovered streams"
             exit 0
           fi
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add config/discovered.m3u
           git commit -m "discovery: update curated streams"
-
           git pull --rebase --quiet origin main || true
           git push origin HEAD:main
-
       - name: Persist discovery rejection memory
         if: always()
         env:
@@ -869,30 +731,23 @@ jobs:
           if [ ! -f .data/discovery.json ]; then
             exit 0
           fi
-
           chmod +x scripts/publish-state.sh
-
           for attempt in 1 2 3 4 5; do
             echo "Publishing discovery state, attempt $attempt"
-
             if ./scripts/publish-state.sh \
               "discovery: $(date -u +%FT%TZ)" \
               .data/discovery.json:discovery.json; then
               echo "Discovery state published successfully"
               exit 0
             fi
-
             echo "State branch changed during publish"
-
             if [ "$attempt" -lt 5 ]; then
               sleep $((attempt * 3))
               git fetch origin state:state --force
             fi
           done
-
           echo "Failed to publish discovery state after 5 attempts"
           exit 1
-
   health:
     name: Health Scan
     if: >
@@ -900,72 +755,56 @@ jobs:
       github.event.schedule == '0 3,15 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 75
-
     strategy:
       fail-fast: false
       matrix:
         shard: [0, 1, 2, 3, 4, 5]
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Create config directory
         run: mkdir -p config
-
       - name: Clone Dearbulut engine
         run: git clone --depth 1 "$ENGINE_REPO" nexus
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Restore discovered streams
         run: |
           mkdir -p nexus/config
-
           if [ -f config/discovered.m3u ]; then
             cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
-
       - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
           import os
-
           path = Path("config/sources.yml")
           text = path.read_text()
           repo = os.environ["GITHUB_REPOSITORY"]
-
           url = (
               f"https://raw.githubusercontent.com/"
               f"{repo}/main/config/discovered.m3u"
           )
-
           text = text.replace(
               "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
               url
           )
-
           path.write_text(text)
           PY
-
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
-
           marker = "await saveDataset(dataset);"
-
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
@@ -1005,23 +844,19 @@ jobs:
             "the jamie oliver channel",
             "the nanny"
           ]);
-
           const normalizeCuratedName = (value: string): string =>
             value
               .trim()
               .toLowerCase()
               .replace(/\s+/g, " ");
-
           const isCanThoTV2 = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
               channelId.includes("cantho") ||
               channelId.includes("can-tho") ||
@@ -1032,95 +867,86 @@ jobs:
               )
             );
           };
-
-          const isMiamiABC = (channel: any): boolean => {
+          const isABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
-              channelId.includes("wplg") ||
-              names.some((name) =>
-                name.includes("wplg") ||
-                name.includes("miami")
-              )
+              channelId === "abc.us" ||
+              names.includes("abc")
             );
           };
-
+          const keepABCEastOnly = (channel: any): boolean => {
+            if (!isABC(channel)) return true;
+            const streams = Array.isArray(channel.streams)
+              ? channel.streams
+              : [];
+            const eastStreams = streams.filter((stream: any) => {
+              const feed = String(
+                stream.feed ?? ""
+              ).trim().toLowerCase();
+              return feed === "east";
+            });
+            if (eastStreams.length === 0) return false;
+            channel.streams = eastStreams;
+            return true;
+          };
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             const isCurated = names.some((name) =>
               CURATED_NAMES.has(name)
             );
-
             if (!isCurated) return false;
-
-            if (names.includes("abc")) {
+            if (isABC(channel)) {
               return (
                 channel.country === "US" &&
-                isMiamiABC(channel)
+                keepABCEastOnly(channel)
               );
             }
-
             if (names.includes("hgtv")) return true;
-
             return channel.country === "US";
           });
-
           dataset.orphans = [];
-
           log.info(
             `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
-
           if "const CURATED_NAMES = new Set([" in text:
               print("Whitelist already patched")
               raise SystemExit(0)
-
           if marker not in text:
               raise SystemExit(
                   "Could not locate aggregate save marker"
               )
-
           text = text.replace(
               marker,
               whitelist + "\n          " + marker,
               1
           )
-
           path.write_text(text)
           PY
-
       - name: Restore health database
         working-directory: nexus
         run: |
           mkdir -p .data
           git fetch origin state:state --depth=1 2>/dev/null || true
           git show state:health.json > .data/health.json 2>/dev/null || true
-
       - name: Install dependencies
         working-directory: nexus
         run: npm ci
-
       - name: Verify ffprobe
         run: ffprobe -version | head -1
-
       - name: Aggregate curated dataset
         working-directory: nexus
         run: npm run cli -- aggregate
-
       - name: Probe health shard
         working-directory: nexus
         run: |
@@ -1128,46 +954,55 @@ jobs:
             --shard-count 6 \
             --shard-index ${{ matrix.shard }} \
             --min-age 300
-
       - name: Upload health shard
         uses: actions/upload-artifact@v4
         with:
           name: health-shard-${{ matrix.shard }}
           path: nexus/.data/health.json
           retention-days: 1
-
   health-merge:
     name: Merge Health
     needs: health
     if: always()
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Clone Dearbulut engine
         run: git clone --depth 1 "$ENGINE_REPO" nexus
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Download health shards
         uses: actions/download-artifact@v4
         with:
           path: shards
           pattern: health-shard-*
-
+          merge-multiple: true
       - name: Merge health databases
         working-directory: nexus
         run: |
+          set -e
           mkdir -p .data
+          shard_count=$(find ../shards -type f -name '*.json' 2>/dev/null | wc -l)
+          if [ "$shard_count" -eq 0 ]; then
+            echo "No health shards available."
+            echo "This is expected when the health scan did not run."
+            echo "Restoring existing health database from state branch."
+            git fetch origin state:state --depth=1 2>/dev/null || true
+            if git show state:health.json > .data/health.json 2>/dev/null; then
+              echo "Existing health database restored."
+            else
+              echo "No existing health database found; creating empty database."
+              printf '[]\n' > .data/health.json
+            fi
+            exit 0
+          fi
+          echo "Found $shard_count health shard file(s)."
           node scripts/merge-health.mjs \
             ../shards \
             .data/health.json
-
       - name: Publish health state
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1175,30 +1010,23 @@ jobs:
         working-directory: nexus
         run: |
           test -f .data/health.json
-
           chmod +x scripts/publish-state.sh
-
           for attempt in 1 2 3 4 5; do
             echo "Publishing health state, attempt $attempt"
-
             if ./scripts/publish-state.sh \
               "health: $(date -u +%FT%TZ)" \
               .data/health.json:health.json; then
               echo "Health state published successfully"
               exit 0
             fi
-
             echo "State branch changed during publish"
-
             if [ "$attempt" -lt 5 ]; then
               sleep $((attempt * 3))
               git fetch origin state:state --force
             fi
           done
-
           echo "Failed to publish health state after 5 attempts"
           exit 1
-
   sync:
     name: Sync and Deploy
     needs:
@@ -1213,145 +1041,110 @@ jobs:
       )
     runs-on: ubuntu-latest
     timeout-minutes: 90
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Create config directory
         run: mkdir -p config
-
       - name: Clone Dearbulut engine
         run: git clone --depth 1 "$ENGINE_REPO" nexus
-
       - name: Preserve stream feed identity
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/sources.ts")
           text = path.read_text()
-
           if "function splitChannelFeed(" not in text:
               marker = "interface JsonStreamShape {"
-
               helper = r'''
           function splitChannelFeed(value: string | null): {
             channel: string | null;
             feed: string | null;
           } {
             const valueTrimmed = value?.trim() ?? "";
-
             if (!valueTrimmed) {
               return {
                 channel: null,
                 feed: null,
               };
             }
-
             const at = valueTrimmed.indexOf("@");
-
             if (at <= 0 || at === valueTrimmed.length - 1) {
               return {
                 channel: valueTrimmed,
                 feed: null,
               };
             }
-
             return {
               channel: valueTrimmed.slice(0, at),
               feed: valueTrimmed.slice(at + 1),
             };
           }
-
           '''
-
               if marker not in text:
                   raise SystemExit(
                       "Could not locate sources.ts insertion point"
                   )
-
               text = text.replace(marker, helper + marker, 1)
-
           old = """      const title = entry.title ?? entry.name ?? '';
           push({
             channel: entry.channel ?? entry.tvg_id ?? null,
             feed: entry.feed ?? null,"""
-
           new = """      const identity = splitChannelFeed(
             entry.channel ?? entry.tvg_id ?? null
           );
-
           push({
             channel: identity.channel,
             feed: entry.feed ?? identity.feed,"""
-
           if old in text:
               text = text.replace(old, new, 1)
-
           old = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
           const title = entry.title || entry.attributes['tvg-name'] || '';
           push({
             channel: tvgId,
             feed: null,"""
-
           new = """      const tvgId = entry.attributes['tvg-id']?.trim() || null;
           const identity = splitChannelFeed(tvgId);
           const title = entry.title || entry.attributes['tvg-name'] || '';
-
           push({
             channel: identity.channel,
             feed: identity.feed,"""
-
           if old in text:
               text = text.replace(old, new, 1)
-
           path.write_text(text)
           PY
-
       - name: Restore state
         working-directory: nexus
         run: |
           mkdir -p .data
           git fetch origin state:state --depth=1 2>/dev/null || true
-
           git show state:health.json \
             > .data/health.json 2>/dev/null || true
-
           git show state:discovery.json \
             > .data/discovery.json 2>/dev/null || true
-
       - name: Restore EPG state
         run: |
           set -e
           mkdir -p epg-state
-
           git fetch origin state:state --depth=1 2>/dev/null || true
-
           echo "========================================"
           echo "RESTORE EPG STATE"
           echo "========================================"
-
           mapfile -t epg_files < <(
             git ls-tree -r --name-only state epg/ 2>/dev/null \
               | grep -E '^epg/[^/]+\.xml\.gz$' \
               || true
           )
-
           if [ "${#epg_files[@]}" -eq 0 ]; then
             echo "No EPG files found in state/epg/"
             exit 1
           fi
-
           restored=0
-
           for state_file in "${epg_files[@]}"; do
             filename="${state_file#epg/}"
-
             git show "state:${state_file}" \
               > "epg-state/${filename}"
-
             if [ -s "epg-state/${filename}" ]; then
               echo "Restored ${state_file}"
               restored=$((restored + 1))
@@ -1360,61 +1153,49 @@ jobs:
               rm -f "epg-state/${filename}"
             fi
           done
-
           echo "----------------------------------------"
           echo "Restored EPG files: $restored"
           echo "========================================"
-
           if [ "$restored" -eq 0 ]; then
             echo "ERROR: No EPG state files were restored."
             exit 1
           fi
-
       - name: Restore discovered streams
         run: |
           mkdir -p nexus/config
-
           if [ -f config/discovered.m3u ]; then
             cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
-
       - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
           import os
-
           path = Path("config/sources.yml")
           text = path.read_text()
           repo = os.environ["GITHUB_REPOSITORY"]
-
           url = (
               f"https://raw.githubusercontent.com/"
               f"{repo}/main/config/discovered.m3u"
           )
-
           text = text.replace(
               "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
               url
           )
-
           path.write_text(text)
           PY
-
       - name: Configure EPG state sources
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
           import os
-
           path = Path("config/epg-sources.yml")
           text = path.read_text()
           repo = os.environ["GITHUB_REPOSITORY"]
-
           replacements = {
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/tvtv-us.xml.gz":
                   f"https://raw.githubusercontent.com/{repo}/state/epg/tvtv-us.xml.gz",
@@ -1433,24 +1214,18 @@ jobs:
               "https://raw.githubusercontent.com/dearbulut/iptv/state/epg/programtv-onet-pl.xml.gz":
                   f"https://raw.githubusercontent.com/{repo}/state/epg/programtv-onet-pl.xml.gz",
           }
-
           for old, new in replacements.items():
               text = text.replace(old, new)
-
           path.write_text(text)
           PY
-
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
           python - <<'PY'
           from pathlib import Path
-
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
-
           marker = "await saveDataset(dataset);"
-
           whitelist = r'''
           const CURATED_NAMES = new Set([
             "abc",
@@ -1490,23 +1265,19 @@ jobs:
             "the jamie oliver channel",
             "the nanny"
           ]);
-
           const normalizeCuratedName = (value: string): string =>
             value
               .trim()
               .toLowerCase()
               .replace(/\s+/g, " ");
-
           const isCanThoTV2 = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
               channelId.includes("cantho") ||
               channelId.includes("can-tho") ||
@@ -1517,290 +1288,227 @@ jobs:
               )
             );
           };
-
-          const isMiamiABC = (channel: any): boolean => {
+          const isABC = (channel: any): boolean => {
             const channelId = String(
               channel.id ?? ""
             ).trim().toLowerCase();
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             return (
-              channelId.includes("wplg") ||
-              names.some((name) =>
-                name.includes("wplg") ||
-                name.includes("miami")
-              )
+              channelId === "abc.us" ||
+              names.includes("abc")
             );
           };
-
+          const keepABCEastOnly = (channel: any): boolean => {
+            if (!isABC(channel)) return true;
+            const streams = Array.isArray(channel.streams)
+              ? channel.streams
+              : [];
+            const eastStreams = streams.filter((stream: any) => {
+              const feed = String(
+                stream.feed ?? ""
+              ).trim().toLowerCase();
+              return feed === "east";
+            });
+            if (eastStreams.length === 0) return false;
+            channel.streams = eastStreams;
+            return true;
+          };
           dataset.channels = dataset.channels.filter((channel) => {
             if (isCanThoTV2(channel)) return false;
-
             const names = [
               channel.name,
               ...(channel.alt_names ?? []),
             ].map(normalizeCuratedName);
-
             const isCurated = names.some((name) =>
               CURATED_NAMES.has(name)
             );
-
             if (!isCurated) return false;
-
-            if (names.includes("abc")) {
+            if (isABC(channel)) {
               return (
                 channel.country === "US" &&
-                isMiamiABC(channel)
+                keepABCEastOnly(channel)
               );
             }
-
             if (names.includes("hgtv")) return true;
-
             return channel.country === "US";
           });
-
           dataset.orphans = [];
-
           log.info(
             `Curated US whitelist: ${dataset.channels.length} channel(s)`
           );
           '''
-
           if "const CURATED_NAMES = new Set([" in text:
               print("Whitelist already patched")
               raise SystemExit(0)
-
           if marker not in text:
               raise SystemExit(
                   "Could not locate aggregate save marker"
               )
-
           text = text.replace(
               marker,
               whitelist + "\n          " + marker,
               1
           )
-
           path.write_text(text)
           PY
-
       - name: Install dependencies
         working-directory: nexus
         run: npm ci
-
       - name: Verify ffprobe
         run: ffprobe -version | head -1
-
       - name: Aggregate
         working-directory: nexus
         env:
           NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
           NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
         run: npm run cli -- aggregate
-
       - name: Build merged EPG
         working-directory: nexus
         env:
           NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
           NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
         run: npm run cli -- epg
-
       - name: Build API and playlists
         working-directory: nexus
         env:
           NEXUS_BASE_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
           NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.event.repository.name }}
         run: npm run cli -- api --clean
-
       - name: Filter final playlist
         run: |
           python - <<'PY'
           from pathlib import Path
           import json
           import re
-
           path = Path("nexus/public/playlists/best.m3u")
           dataset_path = Path("nexus/.data/channels.json")
-
           if not path.exists():
               raise SystemExit("Could not find generated best.m3u")
-
           if not dataset_path.exists():
               raise SystemExit("Could not find aggregated channels.json")
-
           dataset = json.loads(dataset_path.read_text())
-
           curated_ids = {
               str(channel.get("id", "")).strip()
               for channel in dataset.get("channels", [])
               if channel.get("id")
           }
-
           if not curated_ids:
               raise SystemExit("No curated channel IDs found")
-
           print(f"Curated channel IDs: {len(curated_ids)}")
-
           lines = path.read_text().splitlines()
           output = []
           i = 0
-
           while i < len(lines):
               line = lines[i]
-
               if not line.startswith("#EXTINF:"):
                   i += 1
                   continue
-
               match = re.search(r'tvg-id="([^"]*)"', line)
-
               tvg_id = (
                   match.group(1).strip()
                   if match
                   else ""
               )
-
               if tvg_id in curated_ids:
                   output.append(line)
-
                   if i + 1 < len(lines):
                       output.append(lines[i + 1])
-
               i += 2
-
           if not output:
               raise SystemExit("Whitelist removed every channel")
-
           output.insert(
               0,
               '#EXTM3U x-tvg-url="https://naicumlegat.github.io/Guide/epg/guide.xml.gz"'
           )
-
           path.write_text("\n".join(output) + "\n")
-
           count = sum(
               1
               for line in output
               if line.startswith("#EXTINF:")
           )
-
           print(f"Final curated playlist: {count} channel(s)")
           PY
-
       - name: Create final EPG files
         run: |
           set -e
           mkdir -p nexus/public/epg
-
           echo "========================================"
           echo "BUILD FINAL XMLTV EPG"
           echo "========================================"
-
           python - <<'PY'
           import gzip
           import json
           import xml.etree.ElementTree as ET
           from pathlib import Path
-
           source_dir = Path("epg-state")
           output_xml = Path("nexus/public/guide.xml")
           output_gz = Path("nexus/public/epg/guide.xml.gz")
           dataset_path = Path("nexus/.data/channels.json")
-
           dataset = json.loads(dataset_path.read_text())
-
           curated_ids = {
               str(channel.get("id", "")).strip()
               for channel in dataset.get("channels", [])
               if channel.get("id")
           }
-
           files = sorted(source_dir.glob("*.xml.gz"))
-
           if not files:
               raise SystemExit(
                   "ERROR: No EPG state files were restored."
               )
-
           print("EPG state files:")
-
           for file in files:
               print(f"  {file}")
-
           root = ET.Element(
               "tv",
               {
                   "generator-info-name": "Guide Curated IPTV",
               },
           )
-
           channel_ids = set()
           programme_keys = set()
-
           def normalize_channel_id(value):
               if not value:
                   return value
-
               value = str(value).strip()
               base = value.split("@", 1)[0].strip()
-
               if base in curated_ids:
                   return base
-
               return value
-
           for file in files:
               print(f"Reading {file}")
-
               with gzip.open(file, "rb") as fh:
                   source_root = ET.parse(fh).getroot()
-
               for channel in source_root.findall("channel"):
                   original_id = channel.get("id")
-
                   if not original_id:
                       continue
-
                   channel_id = normalize_channel_id(original_id)
-
                   if channel_id not in curated_ids:
                       continue
-
                   new_channel = ET.fromstring(
                       ET.tostring(channel)
                   )
-
                   new_channel.set("id", channel_id)
-
                   if channel_id in channel_ids:
                       continue
-
                   channel_ids.add(channel_id)
                   root.append(new_channel)
-
               for programme in source_root.findall("programme"):
                   original_channel = programme.get("channel")
-
                   if not original_channel:
                       continue
-
                   channel_id = normalize_channel_id(
                       original_channel
                   )
-
                   if channel_id not in curated_ids:
                       continue
-
                   new_programme = ET.fromstring(
                       ET.tostring(programme)
                   )
-
                   new_programme.set("channel", channel_id)
-
                   key = (
                       channel_id,
                       new_programme.get("start"),
@@ -1810,38 +1518,29 @@ jobs:
                           encoding="unicode"
                       ),
                   )
-
                   if key in programme_keys:
                       continue
-
                   programme_keys.add(key)
                   root.append(new_programme)
-
           if not channel_ids:
               raise SystemExit(
                   "ERROR: Restored EPG files contained no curated channels."
               )
-
           if not programme_keys:
               raise SystemExit(
                   "ERROR: Restored EPG files contained no curated programmes."
               )
-
           try:
               ET.indent(root, space="  ")
           except AttributeError:
               pass
-
           output_xml.parent.mkdir(parents=True, exist_ok=True)
-
           ET.ElementTree(root).write(
               output_xml,
               encoding="utf-8",
               xml_declaration=True,
           )
-
           output_gz.parent.mkdir(parents=True, exist_ok=True)
-
           with output_xml.open("rb") as source:
               with gzip.open(
                   output_gz,
@@ -1849,78 +1548,59 @@ jobs:
                   compresslevel=9
               ) as target:
                   target.write(source.read())
-
           print(f"EPG channels: {len(channel_ids)}")
           print(f"EPG programmes: {len(programme_keys)}")
           print(f"XMLTV: {output_xml}")
           print(f"GZIP: {output_gz}")
           PY
-
           cp nexus/public/guide.xml nexus/public/epg/guide.xml
-
           echo
           echo "Final EPG files:"
           ls -lh \
             nexus/public/guide.xml \
             nexus/public/epg/guide.xml \
             nexus/public/epg/guide.xml.gz
-
       - name: Create simple playlist URL
         run: |
           cp nexus/public/playlists/best.m3u \
             nexus/public/channels.m3u
-
       - name: Verify final files
         run: |
           echo "========================================"
           echo "FINAL PLAYLIST"
           echo "========================================"
-
           test -s nexus/public/channels.m3u
-
           grep -c '^#EXTINF' \
             nexus/public/channels.m3u
-
           echo
           echo "========================================"
           echo "FINAL EPG"
           echo "========================================"
-
           test -s nexus/public/epg/guide.xml.gz
-
           gzip -t nexus/public/epg/guide.xml.gz
-
           ls -lh nexus/public/epg/guide.xml.gz
-
           echo
           echo "EPG URL:"
           echo "https://naicumlegat.github.io/Guide/epg/guide.xml.gz"
-
       - name: Show curated result
         working-directory: nexus
         run: |
           echo "========================================"
           echo "CURATED US CHANNELS"
           echo "========================================"
-
           grep '^#EXTINF' public/channels.m3u \
             | sed 's/.*,//' \
             || true
-
           echo
           echo "Channel count:"
-
           grep -c '^#EXTINF' public/channels.m3u \
             || true
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
-
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: nexus/public
-
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
