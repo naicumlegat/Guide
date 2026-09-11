@@ -1,4 +1,5 @@
 name: Build Curated IPTV
+
 on:
   schedule:
     - cron: "15 0,6,12,18 * * *"
@@ -18,7 +19,6 @@ concurrency:
 
 env:
   ENGINE_REPO: https://github.com/dearbulut/iptv.git
-  LIVETVCOLLECTOR_USA_URL: https://raw.githubusercontent.com/bugsfreeweb/LiveTVCollector/main/LiveTV/USA/LiveTV.m3u
 
 jobs:
   epg:
@@ -28,6 +28,7 @@ jobs:
       github.event.schedule == '0 1 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 180
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,7 +53,7 @@ jobs:
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
 
-      - name: Configure LiveTVCollector USA source
+      - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
@@ -60,15 +61,20 @@ jobs:
           import os
 
           path = Path("config/sources.yml")
-          path.write_text(f"""sources:
-            - id: livetvcollector-usa
-              name: LiveTVCollector USA
-              type: m3u
-              url: {os.environ["LIVETVCOLLECTOR_USA_URL"]}
-              enabled: true
-              trust: 1.0
-              country: US
-          """)
+          text = path.read_text()
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
           PY
 
       - name: Preserve stream feed identity
@@ -89,6 +95,7 @@ jobs:
             feed: string | null;
           } {
             const valueTrimmed = value?.trim() ?? "";
+
             if (!valueTrimmed) {
               return {
                 channel: null,
@@ -157,27 +164,6 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Use LiveTVCollector streams only
-        working-directory: nexus
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/aggregate/index.ts")
-          text = path.read_text()
-
-          old = "upstreamStreams: upstream.streams,"
-          new = "upstreamStreams: [],"
-
-          if old not in text:
-              raise SystemExit(
-                  "Could not locate upstream stream merge"
-              )
-
-          text = text.replace(old, new, 1)
-          path.write_text(text)
-          PY
-
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
@@ -186,6 +172,7 @@ jobs:
 
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
+
           marker = "await saveDataset(dataset);"
 
           whitelist = r'''
@@ -199,6 +186,7 @@ jobs:
             "fx",
             "syfy",
             "comedy central",
+            "paramount",
             "paramount network",
             "mtv",
             "freeform",
@@ -214,14 +202,30 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
+            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
             "showtime",
             "a&e",
             "bloomberg tv",
+            "documentary+",
             "paramount+ picks",
-            "paramount movie channel"
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny",
+            "hbo zone",
+            "hbozone",
+            "moremax",
+            "usa",
+            "espn",
+            "espn2",
+            "animal planet",
+            "tnt",
+            "tnt hd",
+            "tbs",
+            "fx hd",
+            "freeformhd"
           ]);
 
           const normalizeCuratedName = (value: string): string =>
@@ -279,34 +283,10 @@ jobs:
                 stream.feed ?? ""
               ).trim().toLowerCase();
 
-              if (feed === "east") {
-                return true;
-              }
-
-              const value = [
-                stream.title,
-                stream.url,
-                stream.channel,
-              ]
-                .map((item) =>
-                  String(item ?? "").trim().toLowerCase()
-                )
-                .join(" ");
-
-              return (
-                value.includes("wabc") &&
-                value.includes("new york")
-              );
+              return feed === "east";
             });
 
-            if (eastStreams.length === 0) {
-              return false;
-            }
-
-            for (const stream of eastStreams) {
-              stream.channel = "ABC.us";
-              stream.feed = "East";
-            }
+            if (eastStreams.length === 0) return false;
 
             channel.streams = eastStreams;
             return true;
@@ -523,6 +503,7 @@ jobs:
         run: |
           set -e
           mkdir -p guides
+
           rm -f epg/guide.xml
           rm -f epg/guide.xml.gz
 
@@ -598,6 +579,7 @@ jobs:
       github.event.schedule == '0 2 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -616,13 +598,14 @@ jobs:
       - name: Restore discovered streams
         run: |
           mkdir -p nexus/config
+
           if [ -f config/discovered.m3u ]; then
             cp config/discovered.m3u nexus/config/discovered.m3u
           else
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
 
-      - name: Configure LiveTVCollector USA source
+      - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
@@ -630,15 +613,20 @@ jobs:
           import os
 
           path = Path("config/sources.yml")
-          path.write_text(f"""sources:
-            - id: livetvcollector-usa
-              name: LiveTVCollector USA
-              type: m3u
-              url: {os.environ["LIVETVCOLLECTOR_USA_URL"]}
-              enabled: true
-              trust: 1.0
-              country: US
-          """)
+          text = path.read_text()
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
           PY
 
       - name: Preserve stream feed identity
@@ -728,27 +716,6 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Use LiveTVCollector streams only
-        working-directory: nexus
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/aggregate/index.ts")
-          text = path.read_text()
-
-          old = "upstreamStreams: upstream.streams,"
-          new = "upstreamStreams: [],"
-
-          if old not in text:
-              raise SystemExit(
-                  "Could not locate upstream stream merge"
-              )
-
-          text = text.replace(old, new, 1)
-          path.write_text(text)
-          PY
-
       - name: Apply channel whitelist
         working-directory: nexus
         run: |
@@ -757,6 +724,7 @@ jobs:
 
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
+
           marker = "await saveDataset(dataset);"
 
           whitelist = r'''
@@ -770,6 +738,7 @@ jobs:
             "fx",
             "syfy",
             "comedy central",
+            "paramount",
             "paramount network",
             "mtv",
             "freeform",
@@ -785,14 +754,30 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
+            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
             "showtime",
             "a&e",
             "bloomberg tv",
+            "documentary+",
             "paramount+ picks",
-            "paramount movie channel"
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny",
+            "hbo zone",
+            "hbozone",
+            "moremax",
+            "usa",
+            "espn",
+            "espn2",
+            "animal planet",
+            "tnt",
+            "tnt hd",
+            "tbs",
+            "fx hd",
+            "freeformhd"
           ]);
 
           const normalizeCuratedName = (value: string): string =>
@@ -850,34 +835,10 @@ jobs:
                 stream.feed ?? ""
               ).trim().toLowerCase();
 
-              if (feed === "east") {
-                return true;
-              }
-
-              const value = [
-                stream.title,
-                stream.url,
-                stream.channel,
-              ]
-                .map((item) =>
-                  String(item ?? "").trim().toLowerCase()
-                )
-                .join(" ");
-
-              return (
-                value.includes("wabc") &&
-                value.includes("new york")
-              );
+              return feed === "east";
             });
 
-            if (eastStreams.length === 0) {
-              return false;
-            }
-
-            for (const stream of eastStreams) {
-              stream.channel = "ABC.us";
-              stream.feed = "East";
-            }
+            if (eastStreams.length === 0) return false;
 
             channel.streams = eastStreams;
             return true;
@@ -1016,11 +977,14 @@ jobs:
 
   health:
     name: Health Scan
+
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.schedule == '0 3,15 * * *'
+
     runs-on: ubuntu-latest
     timeout-minutes: 75
+
     strategy:
       fail-fast: false
       matrix:
@@ -1051,7 +1015,7 @@ jobs:
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
 
-      - name: Configure LiveTVCollector USA source
+      - name: Configure discovered source
         working-directory: nexus
         run: |
           python - <<'PY'
@@ -1059,35 +1023,19 @@ jobs:
           import os
 
           path = Path("config/sources.yml")
-          path.write_text(f"""sources:
-            - id: livetvcollector-usa
-              name: LiveTVCollector USA
-              type: m3u
-              url: {os.environ["LIVETVCOLLECTOR_USA_URL"]}
-              enabled: true
-              trust: 1.0
-              country: US
-          """)
-          PY
-
-      - name: Use LiveTVCollector streams only
-        working-directory: nexus
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/aggregate/index.ts")
           text = path.read_text()
+          repo = os.environ["GITHUB_REPOSITORY"]
 
-          old = "upstreamStreams: upstream.streams,"
-          new = "upstreamStreams: [],"
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
 
-          if old not in text:
-              raise SystemExit(
-                  "Could not locate upstream stream merge"
-              )
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
 
-          text = text.replace(old, new, 1)
           path.write_text(text)
           PY
 
@@ -1099,6 +1047,7 @@ jobs:
 
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
+
           marker = "await saveDataset(dataset);"
 
           whitelist = r'''
@@ -1112,6 +1061,7 @@ jobs:
             "fx",
             "syfy",
             "comedy central",
+            "paramount",
             "paramount network",
             "mtv",
             "freeform",
@@ -1127,14 +1077,30 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
+            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
             "showtime",
             "a&e",
             "bloomberg tv",
+            "documentary+",
             "paramount+ picks",
-            "paramount movie channel"
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny",
+            "hbo zone",
+            "hbozone",
+            "moremax",
+            "usa",
+            "espn",
+            "espn2",
+            "animal planet",
+            "tnt",
+            "tnt hd",
+            "tbs",
+            "fx hd",
+            "freeformhd"
           ]);
 
           const normalizeCuratedName = (value: string): string =>
@@ -1192,34 +1158,10 @@ jobs:
                 stream.feed ?? ""
               ).trim().toLowerCase();
 
-              if (feed === "east") {
-                return true;
-              }
-
-              const value = [
-                stream.title,
-                stream.url,
-                stream.channel,
-              ]
-                .map((item) =>
-                  String(item ?? "").trim().toLowerCase()
-                )
-                .join(" ");
-
-              return (
-                value.includes("wabc") &&
-                value.includes("new york")
-              );
+              return feed === "east";
             });
 
-            if (eastStreams.length === 0) {
-              return false;
-            }
-
-            for (const stream of eastStreams) {
-              stream.channel = "ABC.us";
-              stream.feed = "East";
-            }
+            if (eastStreams.length === 0) return false;
 
             channel.streams = eastStreams;
             return true;
@@ -1338,7 +1280,6 @@ jobs:
         working-directory: nexus
         run: |
           set -e
-
           mkdir -p .data
 
           shard_count=$(find ../shards -type f -name '*.json' 2>/dev/null | wc -l)
@@ -1373,7 +1314,6 @@ jobs:
         working-directory: nexus
         run: |
           test -f .data/health.json
-
           chmod +x scripts/publish-state.sh
 
           for attempt in 1 2 3 4 5; do
@@ -1399,6 +1339,7 @@ jobs:
 
   sync:
     name: Sync and Deploy
+
     needs:
       - epg
       - discovery
@@ -1423,25 +1364,6 @@ jobs:
 
       - name: Clone Dearbulut engine
         run: git clone --depth 1 "$ENGINE_REPO" nexus
-
-      - name: Configure LiveTVCollector USA source
-        working-directory: nexus
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import os
-
-          path = Path("config/sources.yml")
-          path.write_text(f"""sources:
-            - id: livetvcollector-usa
-              name: LiveTVCollector USA
-              type: m3u
-              url: {os.environ["LIVETVCOLLECTOR_USA_URL"]}
-              enabled: true
-              trust: 1.0
-              country: US
-          """)
-          PY
 
       - name: Preserve stream feed identity
         working-directory: nexus
@@ -1530,27 +1452,6 @@ jobs:
           path.write_text(text)
           PY
 
-      - name: Use LiveTVCollector streams only
-        working-directory: nexus
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/aggregate/index.ts")
-          text = path.read_text()
-
-          old = "upstreamStreams: upstream.streams,"
-          new = "upstreamStreams: [],"
-
-          if old not in text:
-              raise SystemExit(
-                  "Could not locate upstream stream merge"
-              )
-
-          text = text.replace(old, new, 1)
-          path.write_text(text)
-          PY
-
       - name: Restore state
         working-directory: nexus
         run: |
@@ -1623,6 +1524,30 @@ jobs:
             printf '#EXTM3U\n' > nexus/config/discovered.m3u
           fi
 
+      - name: Configure discovered source
+        working-directory: nexus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          path = Path("config/sources.yml")
+          text = path.read_text()
+          repo = os.environ["GITHUB_REPOSITORY"]
+
+          url = (
+              f"https://raw.githubusercontent.com/"
+              f"{repo}/main/config/discovered.m3u"
+          )
+
+          text = text.replace(
+              "https://raw.githubusercontent.com/dearbulut/iptv/main/config/discovered.m3u",
+              url
+          )
+
+          path.write_text(text)
+          PY
+
       - name: Configure EPG state sources
         working-directory: nexus
         run: |
@@ -1632,7 +1557,6 @@ jobs:
 
           path = Path("config/epg-sources.yml")
           text = path.read_text()
-
           repo = os.environ["GITHUB_REPOSITORY"]
 
           replacements = {
@@ -1675,6 +1599,7 @@ jobs:
 
           path = Path("src/aggregate/index.ts")
           text = path.read_text()
+
           marker = "await saveDataset(dataset);"
 
           whitelist = r'''
@@ -1688,6 +1613,7 @@ jobs:
             "fx",
             "syfy",
             "comedy central",
+            "paramount",
             "paramount network",
             "mtv",
             "freeform",
@@ -1703,14 +1629,30 @@ jobs:
             "hbo",
             "hbo hits",
             "hbo movies",
+            "starz",
             "starz cinema",
             "starz comedy",
             "cinemax",
             "showtime",
             "a&e",
             "bloomberg tv",
+            "documentary+",
             "paramount+ picks",
-            "paramount movie channel"
+            "paramount movie channel",
+            "the jamie oliver channel",
+            "the nanny",
+            "hbo zone",
+            "hbozone",
+            "moremax",
+            "usa",
+            "espn",
+            "espn2",
+            "animal planet",
+            "tnt",
+            "tnt hd",
+            "tbs",
+            "fx hd",
+            "freeformhd"
           ]);
 
           const normalizeCuratedName = (value: string): string =>
@@ -1768,34 +1710,10 @@ jobs:
                 stream.feed ?? ""
               ).trim().toLowerCase();
 
-              if (feed === "east") {
-                return true;
-              }
-
-              const value = [
-                stream.title,
-                stream.url,
-                stream.channel,
-              ]
-                .map((item) =>
-                  String(item ?? "").trim().toLowerCase()
-                )
-                .join(" ");
-
-              return (
-                value.includes("wabc") &&
-                value.includes("new york")
-              );
+              return feed === "east";
             });
 
-            if (eastStreams.length === 0) {
-              return false;
-            }
-
-            for (const stream of eastStreams) {
-              stream.channel = "ABC.us";
-              stream.feed = "East";
-            }
+            if (eastStreams.length === 0) return false;
 
             channel.streams = eastStreams;
             return true;
@@ -1880,6 +1798,80 @@ jobs:
           NEXUS_REPOSITORY: ${{ github.server_url }}/${{ github.event.repository.name }}
         run: npm run cli -- api --clean
 
+      - name: Apply fixed stream URLs
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("nexus/public/playlists/best.m3u")
+
+          if not path.exists():
+              raise SystemExit("Could not find generated best.m3u")
+
+          fixed = {
+              "ABC": "http://4.30.180.36:8420/abc/index.m3u8?token=test",
+              "CBS": "https://livevideo01.cbs8.com/hls/live/2014967/newscasts/live.m3u8",
+              "PBS": "https://kqeddt2.lls.pbs.org/kqeddt2-hls.m3u8",
+              "FX": "http://4.30.180.36:8420/fx/index.m3u8?token=test",
+              "FX HD": "http://190.11.225.124:5000/live/fx_hd/playlist.m3u8",
+              "A&E": "http://iptvpro.ddns.net/stream/ae/index.m3u8",
+              "Syfy": "http://23.237.104.106:8080/USA_SYFY/index.m3u8",
+              "Freeform": "http://4.30.180.36:8420/freeform/index.m3u8?token=test",
+              "FreeformHD": "http://190.11.225.124:5000/live/freeform_hd/playlist.m3u8",
+              "Hallmark Movies & More": "https://pb-clwlfvkqpn19r.akamaized.net/Hallmark_Movies_&_More.m3u8",
+              "Cartoon Network": "http://23.237.104.106:8080/USA_CARTOON_NETWORK/index.m3u8",
+              "MoreMax": "http://23.237.104.106:8080/USA_MOREMAX/index.m3u8",
+              "Bravo": "http://4.30.180.36:8420/bravo/index.m3u8?token=test",
+              "E!": "http://23.237.104.106:8080/USA_E/index.m3u8",
+              "Lifetime": "http://41.205.93.154/LIFETIME/index.m3u8",
+              "Disney": "http://4.30.180.36:8420/disneychannel/index.m3u8?token=test",
+              "HboZone": "http://23.237.104.106:8080/USA_HBO_ZONE/index.m3u8",
+              "Cinemax": "http://23.237.104.106:8080/USA_CINEMAX/index.m3u8",
+              "USA": "http://4.30.180.36:8420/usa/index.m3u8?token=test",
+              "ESPN2": "http://4.30.180.36:8420/espn2/index.m3u8?token=test",
+              "ESPN": "http://4.30.180.36:8420/espn/index.m3u8?token=test",
+              "Animal Planet": "http://23.237.104.106:8080/USA_ANIMAL_PLANET/index.m3u8",
+              "MTV": "http://23.237.104.106:8080/USA_MTV/index.m3u8?takodachi",
+              "TNT": "https://turnerlive.warnermediacdn.com/hls/live/2023168/tnteast/slate/VIDEO_0_3564000.m3u8",
+              "TNT HD": "http://190.11.225.124:5000/live/tnt_hd/playlist.m3u8",
+              "TBS": "https://turnerlive.warnermediacdn.com/hls/live/2023172/tbseast/slate/VIDEO_0_3564000.m3u8",
+              "Paramount Movie Channel": "https://jmp2.uk/plu-5cb0cae7a461406ffe3f5213.m3u8",
+          }
+
+          lines = path.read_text().splitlines()
+          output = []
+
+          i = 0
+
+          while i < len(lines):
+              line = lines[i]
+
+              if not line.startswith("#EXTINF:"):
+                  output.append(line)
+                  i += 1
+                  continue
+
+              title = line.rsplit(",", 1)[-1].strip()
+              fixed_url = fixed.get(title)
+
+              output.append(line)
+
+              if i + 1 < len(lines):
+                  if fixed_url:
+                      output.append(fixed_url)
+                  else:
+                      output.append(lines[i + 1])
+
+              i += 2
+
+          path.write_text("\n".join(output) + "\n")
+
+          print("Fixed stream URLs applied.")
+          for name in fixed:
+              print(f"  {name}")
+          PY
+
       - name: Filter final playlist
         run: |
           python - <<'PY'
@@ -1894,9 +1886,7 @@ jobs:
               raise SystemExit("Could not find generated best.m3u")
 
           if not dataset_path.exists():
-              raise SystemExit(
-                  "Could not find aggregated channels.json"
-              )
+              raise SystemExit("Could not find aggregated channels.json")
 
           dataset = json.loads(dataset_path.read_text())
 
@@ -1907,16 +1897,13 @@ jobs:
           }
 
           if not curated_ids:
-              raise SystemExit(
-                  "No curated channel IDs found"
-              )
+              raise SystemExit("No curated channel IDs found")
 
-          print(
-              f"Curated channel IDs: {len(curated_ids)}"
-          )
+          print(f"Curated channel IDs: {len(curated_ids)}")
 
           lines = path.read_text().splitlines()
           output = []
+
           i = 0
 
           while i < len(lines):
@@ -1988,12 +1975,8 @@ jobs:
 
           source_dir = Path("epg-state")
           output_xml = Path("nexus/public/guide.xml")
-          output_gz = Path(
-              "nexus/public/epg/guide.xml.gz"
-          )
-          dataset_path = Path(
-              "nexus/.data/channels.json"
-          )
+          output_gz = Path("nexus/public/epg/guide.xml.gz")
+          dataset_path = Path("nexus/.data/channels.json")
 
           dataset = json.loads(
               dataset_path.read_text()
@@ -2022,8 +2005,7 @@ jobs:
           root = ET.Element(
               "tv",
               {
-                  "generator-info-name":
-                      "Guide Curated IPTV",
+                  "generator-info-name": "Guide Curated IPTV",
               },
           )
 
@@ -2035,6 +2017,7 @@ jobs:
                   return value
 
               value = str(value).strip()
+
               base = value.split("@", 1)[0].strip()
 
               if base in curated_ids:
@@ -2048,9 +2031,7 @@ jobs:
               with gzip.open(file, "rb") as fh:
                   source_root = ET.parse(fh).getroot()
 
-              for channel in source_root.findall(
-                  "channel"
-              ):
+              for channel in source_root.findall("channel"):
                   original_id = channel.get("id")
 
                   if not original_id:
@@ -2078,9 +2059,7 @@ jobs:
                   channel_ids.add(channel_id)
                   root.append(new_channel)
 
-              for programme in source_root.findall(
-                  "programme"
-              ):
+              for programme in source_root.findall("programme"):
                   original_channel = programme.get(
                       "channel"
                   )
@@ -2213,7 +2192,8 @@ jobs:
 
           test -s nexus/public/epg/guide.xml.gz
 
-          gzip -t nexus/public/epg/guide.xml.gz
+          gzip -t \
+            nexus/public/epg/guide.xml.gz
 
           ls -lh \
             nexus/public/epg/guide.xml.gz
